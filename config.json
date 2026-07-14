@@ -1,0 +1,89 @@
+{
+  "ContinueOnError": true,
+  "CachePath": "%USERPROFILE%\\Downloads\\InstaladorPadrao",
+  "Profiles": {
+    "Padrao": ["adobe", "office365", "chrome", "gdrive", "teamviewer"],
+    "SAC": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "microsip"],
+    "SalaApoio": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "salaapoio"]
+  },
+  "Applications": [
+    {
+      "Id": "adobe",
+      "Name": "Adobe Acrobat Pro DC 2023",
+      "Type": "Exe",
+      "Path": "Executáveis\\Adobe\\setup.exe",
+      "DownloadUrl": "",
+      "SetupRelativePath": "",
+      "Arguments": "/sAll /rs /rps /msi EULA_ACCEPT=YES",
+      "DetectionDisplayName": "Adobe Acrobat*",
+      "DetectionPath": "",
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
+      "Id": "office365",
+      "Name": "Microsoft 365 (instalador da conta)",
+      "Type": "Exe",
+      "Path": "Executáveis\\Office\\OfficeSetup.exe",
+      "DownloadUrl": "",
+      "Arguments": "/quiet",
+      "DetectionDisplayName": "Microsoft 365*",
+      "DetectionPath": "%ProgramFiles%\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
+      "Id": "chrome",
+      "Name": "Google Chrome",
+      "Type": "Exe",
+      "Path": "Executáveis\\Chrome\\chrome_installer.exe",
+      "DownloadUrl": "https://dl.google.com/chrome/install/latest/chrome_installer.exe",
+      "Arguments": "/silent /install",
+      "DetectionDisplayName": "Google Chrome*",
+      "DetectionPath": "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe",
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
+      "Id": "gdrive",
+      "Name": "Google Drive para computador",
+      "Type": "Exe",
+      "Path": "Executáveis\\GoogleDrive\\GoogleDriveSetup.exe",
+      "DownloadUrl": "https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe",
+      "Arguments": "--silent --desktop_shortcut",
+      "DetectionDisplayName": "Google Drive*",
+      "DetectionPath": "%ProgramFiles%\\Google\\Drive File Stream\\launch.bat",
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
+      "Id": "teamviewer",
+      "Name": "TeamViewer",
+      "Type": "Exe",
+      "Path": "Executáveis\\TeamViewer\\TeamViewer_Host_Setup_x64.exe",
+      "DownloadUrl": "https://download.teamviewer.com/download/TeamViewer_Host_Setup_x64.exe",
+      "Arguments": "/S",
+      "DetectionDisplayName": "TeamViewer*",
+      "DetectionPath": "%ProgramFiles%\\TeamViewer\\TeamViewer.exe",
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
+      "Id": "microsip",
+      "Name": "MicroSIP",
+      "Type": "Exe",
+      "Path": "Executáveis\\MicroSIP\\MicroSIP-3.22.12.exe",
+      "DownloadUrl": "https://www.microsip.org/download/MicroSIP-3.22.12.exe",
+      "Arguments": "/VERYSILENT /NORESTART",
+      "DetectionDisplayName": "MicroSIP*",
+      "DetectionPath": "%ProgramFiles%\\MicroSIP\\microsip.exe",
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
+      "Id": "salaapoio",
+      "Name": "Pacote da Sala de Apoio",
+      "Type": "Exe",
+      "Path": "Executáveis\\SalaApoio\\InstaladorSalaApoio.exe",
+      "DownloadUrl": "",
+      "Arguments": "/S",
+      "DetectionDisplayName": "",
+      "DetectionPath": "",
+      "SuccessExitCodes": [0, 1641, 3010]
+    }
+  ]
+}

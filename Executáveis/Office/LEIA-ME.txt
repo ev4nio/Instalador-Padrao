@@ -1,0 +1,3 @@
+Coloque nesta pasta o instalador do Microsoft 365 baixado no site oficial com o nome OfficeSetup.exe.
+
+O instalador padrão o executará com os parâmetros configurados em config.json.

@@ -1,0 +1,3 @@
+Coloque nesta pasta o instalador do Adobe com o nome setup.exe.
+
+O instalador padrão o executará com os parâmetros configurados em config.json.

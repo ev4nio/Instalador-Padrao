@@ -1,0 +1,11 @@
+# Instaladores proprietários ou fornecidos manualmente.
+Executáveis/**/*.exe
+Executáveis/**/*.msi
+Executáveis/**/*.iso
+Instalador-Padrao/Executáveis/**/*.exe
+Instalador-Padrao/Executáveis/**/*.msi
+Instalador-Padrao/Executáveis/**/*.iso
+
+# Arquivos temporários gerados durante downloads.
+Executáveis/**/*.download
+Instalador-Padrao/Executáveis/**/*.download

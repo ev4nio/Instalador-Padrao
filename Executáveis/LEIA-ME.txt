@@ -1,0 +1,2 @@
+Coloque aqui os instaladores conforme a estrutura descrita no README.md.
+Os binários não acompanham este projeto.
