@@ -192,7 +192,7 @@ O pacote da Sala de Apoio precisa ser testado para confirmar se `/S` é aceito. 
 
 ### Requisito inicial, substituído
 
-Inicialmente foi solicitado que o Adobe fosse instalado a partir de uma ISO, com montagem e desmontagem automáticas.
+A versão vigente instala o Adobe diretamente pelo executável `setup.exe`; não utiliza ISO nem montagem de unidade.
 
 ### Decisão vigente
 
