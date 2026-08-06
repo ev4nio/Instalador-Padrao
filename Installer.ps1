@@ -174,7 +174,11 @@ function Test-ApplicationInstalled {
         )
         $pattern = [string]$Application.DetectionDisplayName
         foreach ($root in $roots) {
-            if (Get-ItemProperty $root -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like $pattern }) { return $true }
+            $match = Get-ItemProperty $root -ErrorAction SilentlyContinue | Where-Object {
+                $displayNameProperty = $_.PSObject.Properties['DisplayName']
+                $displayNameProperty -and ([string]$displayNameProperty.Value -like $pattern)
+            } | Select-Object -First 1
+            if ($match) { return $true }
         }
     }
     return $false
