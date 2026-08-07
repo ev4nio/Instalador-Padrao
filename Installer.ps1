@@ -2,7 +2,8 @@
 param(
     [switch]$Elevated,
     [switch]$Silent,
-    [ValidateSet('Padrao','SAC','SalaApoio')][string]$Profile = 'Padrao',
+    [ValidateSet('Normal')][string]$Profile = 'Normal',
+    [string[]]$Applications,
     [switch]$DryRun
 )
 
@@ -33,6 +34,7 @@ function Request-Elevation {
     if (Test-IsAdministrator) { return }
     $arguments = @('-NoProfile','-ExecutionPolicy','Bypass','-File',('"{0}"' -f $PSCommandPath),'-Elevated')
     if ($Silent) { $arguments += @('-Silent','-Profile',$Profile) }
+    if ($Applications) { $arguments += @('-Applications',('"{0}"' -f ($Applications -join ','))) }
     if ($DryRun) { $arguments += '-DryRun' }
     Start-Process -FilePath 'powershell.exe' -Verb RunAs -ArgumentList ($arguments -join ' ')
     exit
@@ -105,9 +107,18 @@ function Invoke-PackageDownload {
         if ($ProgressCallback) { & $ProgressCallback "Pacote local pronto: $($Application.Name)" 100 }
         return $source
     }
+    $minimumBytes = 1
+    if ($Application.PSObject.Properties['MinimumDownloadBytes']) {
+        $minimumBytes = [long]$Application.MinimumDownloadBytes
+    }
     if (Test-Path -LiteralPath $destination) {
-        Write-InstallLog "Pacote temporário encontrado: $destination"
-        return $destination
+        $cachedLength = (Get-Item -LiteralPath $destination).Length
+        if ($cachedLength -ge $minimumBytes) {
+            Write-InstallLog "Pacote temporário válido encontrado: $destination ($cachedLength bytes)"
+            return $destination
+        }
+        Write-InstallLog "Pacote temporário incompleto encontrado e descartado: $destination ($cachedLength bytes)" 'WARN'
+        Remove-Item -LiteralPath $destination -Force
     }
     $folder = Split-Path -Parent $destination
     if (-not (Test-Path -LiteralPath $folder)) { New-Item -ItemType Directory -Path $folder -Force | Out-Null }
@@ -144,7 +155,7 @@ function Invoke-PackageDownload {
             }
         }
         $output.Flush(); $output.Close(); $output = $null
-        if ($downloaded -le 0) { throw 'O servidor retornou um arquivo vazio.' }
+        if ($downloaded -lt $minimumBytes) { throw "O download terminou incompleto ($downloaded bytes; mínimo esperado: $minimumBytes bytes)." }
         Move-Item -LiteralPath $partial -Destination $destination -Force
         Write-InstallLog ("Download concluído: {0:N2} MB em {1:N1}s" -f ($downloaded/1MB),$watch.Elapsed.TotalSeconds) 'SUCCESS'
         if ($ProgressCallback) { & $ProgressCallback "Download concluído: $($Application.Name)" 100 }
@@ -163,9 +174,21 @@ function Invoke-PackageDownload {
 
 function Test-ApplicationInstalled {
     param([Parameter(Mandatory)]$Application)
+    if ($Application.PSObject.Properties['DetectionRegistryPaths']) {
+        $valueName = [string]$Application.DetectionRegistryValue
+        foreach ($registryPath in @($Application.DetectionRegistryPaths)) {
+            $registryItem = Get-ItemProperty -LiteralPath ([string]$registryPath) -ErrorAction SilentlyContinue
+            if ($registryItem) {
+                $versionProperty = $registryItem.PSObject.Properties[$valueName]
+                if ($versionProperty -and -not [string]::IsNullOrWhiteSpace([string]$versionProperty.Value) -and [string]$versionProperty.Value -ne '0.0.0.0') {
+                    return $true
+                }
+            }
+        }
+    }
     if ($Application.DetectionPath) {
         $path = [Environment]::ExpandEnvironmentVariables([string]$Application.DetectionPath)
-        if (Test-Path -LiteralPath $path) { return $true }
+        if (Test-Path -Path $path) { return $true }
     }
     if ($Application.DetectionDisplayName) {
         $roots = @(
@@ -206,7 +229,9 @@ function Invoke-ProcessChecked {
 function Invoke-ApplicationInstall {
     param([Parameter(Mandatory)]$Application, [scriptblock]$ProgressCallback)
     Write-InstallLog "Iniciando: $($Application.Name)"
-    if (-not $DryRun -and (Test-ApplicationInstalled $Application)) {
+    $skipIfInstalled = $true
+    if ($Application.PSObject.Properties['SkipIfInstalled']) { $skipIfInstalled = [bool]$Application.SkipIfInstalled }
+    if (-not $DryRun -and $skipIfInstalled -and (Test-ApplicationInstalled $Application)) {
         Write-InstallLog "$($Application.Name) já está instalado; etapa ignorada." 'SUCCESS'
         return @{ Name=$Application.Name; Status='Já instalado'; Success=$true }
     }
@@ -258,8 +283,27 @@ function Get-ProfileApplications {
     return @($script:Config.Applications | Where-Object { $ids -contains $_.Id })
 }
 
+function Expand-ApplicationDependencies {
+    param([array]$Applications)
+    $selectedIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($app in $Applications) { [void]$selectedIds.Add([string]$app.Id) }
+    $changed = $true
+    while ($changed) {
+        $changed = $false
+        foreach ($app in @($script:Config.Applications | Where-Object { $selectedIds.Contains([string]$_.Id) })) {
+            if ($app.PSObject.Properties['Dependencies']) {
+                foreach ($dependencyId in @($app.Dependencies)) {
+                    if ($selectedIds.Add([string]$dependencyId)) { $changed = $true }
+                }
+            }
+        }
+    }
+    return @($script:Config.Applications | Where-Object { $selectedIds.Contains([string]$_.Id) })
+}
+
 function Start-Installation {
     param([array]$Applications, [scriptblock]$StatusCallback)
+    $Applications = @(Expand-ApplicationDependencies $Applications)
     $results = @()
     Write-InstallLog "Sessão iniciada. Perfil: $Profile; Simulação: $DryRun"
     $index = 0
@@ -295,8 +339,8 @@ function Show-MainWindow {
     [xml]$xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Instalador Padrão" Height="650" Width="820" WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize" Background="#F4F6F9">
  <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <StackPanel><TextBlock Text="Instalador de programas" FontSize="27" FontWeight="SemiBold" Foreground="#172033"/><TextBlock Text="Escolha um perfil e confira os componentes antes de iniciar." Margin="0,5,0,18" Foreground="#5E687A"/></StackPanel>
-  <Grid Grid.Row="1" Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Perfil de instalação" FontWeight="SemiBold"/><ComboBox Name="ProfileBox" Width="280" HorizontalAlignment="Left" Margin="0,6,0,0"><ComboBoxItem Tag="Padrao">Instalação padrão</ComboBoxItem><ComboBoxItem Tag="SAC">SAC</ComboBoxItem><ComboBoxItem Tag="SalaApoio">Sala de apoio</ComboBoxItem></ComboBox></StackPanel><CheckBox Name="DryRunBox" Grid.Column="1" Content="Modo simulação" VerticalAlignment="Bottom" Margin="25,0,0,7" ToolTip="Gera o log sem executar os instaladores."/></Grid>
+  <StackPanel><TextBlock Text="Instalador de programas" FontSize="27" FontWeight="SemiBold" Foreground="#172033"/><TextBlock Text="Desmarque abaixo os programas que não deseja instalar." Margin="0,5,0,18" Foreground="#5E687A"/></StackPanel>
+  <Grid Grid.Row="1" Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Modo de instalação" FontWeight="SemiBold"/><ComboBox Name="ProfileBox" Width="280" HorizontalAlignment="Left" Margin="0,6,0,0"><ComboBoxItem Tag="Normal">Normal</ComboBoxItem></ComboBox></StackPanel><CheckBox Name="DryRunBox" Grid.Column="1" Content="Modo simulação" VerticalAlignment="Bottom" Margin="25,0,0,7" ToolTip="Gera o log sem executar os instaladores."/></Grid>
   <Border Grid.Row="2" Background="White" BorderBrush="#D9DEE8" BorderThickness="1" CornerRadius="7" Padding="16"><DockPanel><TextBlock DockPanel.Dock="Top" Text="Prévia — desmarque o que não quiser instalar" FontWeight="SemiBold" Margin="0,0,0,12"/><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Name="AppsPanel"/></ScrollViewer></DockPanel></Border>
   <StackPanel Grid.Row="3" Margin="0,14,0,12"><ProgressBar Name="Progress" Height="8" Minimum="0" Maximum="100"/><TextBlock Name="StatusText" Text="Pronto para iniciar." Margin="0,7,0,0" Foreground="#5E687A"/></StackPanel>
   <Grid Grid.Row="4"><Button Name="LogButton" Content="Abrir pasta de logs" HorizontalAlignment="Left" Padding="16,9"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Name="CloseButton" Content="Fechar" Padding="20,9" Margin="0,0,10,0"/><Button Name="InstallButton" Content="Instalar selecionados" Padding="20,9" Background="#1769E0" Foreground="White" FontWeight="SemiBold"/></StackPanel></Grid>
@@ -350,6 +394,12 @@ try {
     Write-InstallLog "Aplicativo iniciado por $env:USERNAME em $env:COMPUTERNAME."
     if ($Silent) {
         $apps = Get-ProfileApplications $Profile
+        if ($Applications) {
+            $requestedIds = @($Applications | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            $unknownIds = @($requestedIds | Where-Object { $_ -notin @($apps.Id) })
+            if ($unknownIds.Count) { throw "Programa(s) desconhecido(s): $($unknownIds -join ', ')." }
+            $apps = @($apps | Where-Object { $_.Id -in $requestedIds })
+        }
         $results = Start-Installation -Applications $apps
         if (@($results | Where-Object { -not $_.Success }).Count) { exit 1 }
         exit 0

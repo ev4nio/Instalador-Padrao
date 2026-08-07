@@ -1,0 +1,5 @@
+Coloque nesta pasta o pacote com o nome:
+
+Instalador_Drivers_OAB.exe
+
+O script executará o arquivo com os parâmetros silenciosos configurados no config.json.
