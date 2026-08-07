@@ -4,7 +4,7 @@
   "Profiles": {
     "Padrao": ["adobe", "office365", "chrome", "gdrive", "teamviewer"],
     "SAC": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "microsip"],
-    "SalaApoio": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "salaapoio"]
+    "DriversOAB": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "driversoab"]
   },
   "Applications": [
     {
@@ -75,12 +75,12 @@
       "SuccessExitCodes": [0, 1641, 3010]
     },
     {
-      "Id": "salaapoio",
-      "Name": "Pacote da Sala de Apoio",
+      "Id": "driversoab",
+      "Name": "Instalador Drivers OAB",
       "Type": "Exe",
-      "Path": "Executáveis\\SalaApoio\\InstaladorSalaApoio.exe",
+      "Path": "Executáveis\\Instalador Drivers OAB\\Instalador_Drivers_OAB.exe",
       "DownloadUrl": "",
-      "Arguments": "/S",
+      "Arguments": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART",
       "DetectionDisplayName": "",
       "DetectionPath": "",
       "SuccessExitCodes": [0, 1641, 3010]

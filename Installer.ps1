@@ -2,7 +2,7 @@
 param(
     [switch]$Elevated,
     [switch]$Silent,
-    [ValidateSet('Padrao','SAC','SalaApoio')][string]$Profile = 'Padrao',
+    [ValidateSet('Padrao','SAC','DriversOAB')][string]$Profile = 'Padrao',
     [switch]$DryRun
 )
 
@@ -296,7 +296,7 @@ function Show-MainWindow {
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Instalador Padrão" Height="650" Width="820" WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize" Background="#F4F6F9">
  <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
   <StackPanel><TextBlock Text="Instalador de programas" FontSize="27" FontWeight="SemiBold" Foreground="#172033"/><TextBlock Text="Escolha um perfil e confira os componentes antes de iniciar." Margin="0,5,0,18" Foreground="#5E687A"/></StackPanel>
-  <Grid Grid.Row="1" Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Perfil de instalação" FontWeight="SemiBold"/><ComboBox Name="ProfileBox" Width="280" HorizontalAlignment="Left" Margin="0,6,0,0"><ComboBoxItem Tag="Padrao">Instalação padrão</ComboBoxItem><ComboBoxItem Tag="SAC">SAC</ComboBoxItem><ComboBoxItem Tag="SalaApoio">Sala de apoio</ComboBoxItem></ComboBox></StackPanel><CheckBox Name="DryRunBox" Grid.Column="1" Content="Modo simulação" VerticalAlignment="Bottom" Margin="25,0,0,7" ToolTip="Gera o log sem executar os instaladores."/></Grid>
+  <Grid Grid.Row="1" Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Perfil de instalação" FontWeight="SemiBold"/><ComboBox Name="ProfileBox" Width="280" HorizontalAlignment="Left" Margin="0,6,0,0"><ComboBoxItem Tag="Padrao">Instalação padrão</ComboBoxItem><ComboBoxItem Tag="SAC">SAC</ComboBoxItem><ComboBoxItem Tag="DriversOAB">Drivers OAB</ComboBoxItem></ComboBox></StackPanel><CheckBox Name="DryRunBox" Grid.Column="1" Content="Modo simulação" VerticalAlignment="Bottom" Margin="25,0,0,7" ToolTip="Gera o log sem executar os instaladores."/></Grid>
   <Border Grid.Row="2" Background="White" BorderBrush="#D9DEE8" BorderThickness="1" CornerRadius="7" Padding="16"><DockPanel><TextBlock DockPanel.Dock="Top" Text="Prévia — desmarque o que não quiser instalar" FontWeight="SemiBold" Margin="0,0,0,12"/><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Name="AppsPanel"/></ScrollViewer></DockPanel></Border>
   <StackPanel Grid.Row="3" Margin="0,14,0,12"><ProgressBar Name="Progress" Height="8" Minimum="0" Maximum="100"/><TextBlock Name="StatusText" Text="Pronto para iniciar." Margin="0,7,0,0" Foreground="#5E687A"/></StackPanel>
   <Grid Grid.Row="4"><Button Name="LogButton" Content="Abrir pasta de logs" HorizontalAlignment="Left" Padding="16,9"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Name="CloseButton" Content="Fechar" Padding="20,9" Margin="0,0,10,0"/><Button Name="InstallButton" Content="Instalar selecionados" Padding="20,9" Background="#1769E0" Foreground="White" FontWeight="SemiBold"/></StackPanel></Grid>

@@ -61,13 +61,13 @@ Deve instalar tudo do perfil Padrão e acrescentar:
 
 6. MicroSIP.
 
-### 3.3. Sala de Apoio
+### 3.3. Drivers OAB
 
 Deve instalar tudo do perfil Padrão, sem o MicroSIP, e acrescentar:
 
-6. Pacote específico da Sala de Apoio.
+6. Instalador Drivers OAB.
 
-O pacote da Sala de Apoio é um único arquivo `.exe` que já contém todos os programas específicos necessários. O script não deve tratar os programas internos separadamente; deve executar esse pacote como uma única etapa silenciosa depois dos programas do perfil Padrão.
+O Instalador Drivers OAB é um único arquivo `.exe`. O script deve executá-lo como uma única etapa silenciosa depois dos programas do perfil Padrão.
 
 Representação vigente dos perfis:
 
@@ -75,7 +75,7 @@ Representação vigente dos perfis:
 {
   "Padrao": ["adobe", "office365", "chrome", "gdrive", "teamviewer"],
   "SAC": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "microsip"],
-  "SalaApoio": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "salaapoio"]
+  "DriversOAB": ["adobe", "office365", "chrome", "gdrive", "teamviewer", "driversoab"]
 }
 ```
 
@@ -87,7 +87,7 @@ A janela principal deve apresentar:
 - seletor de perfil:
   - Instalação Padrão;
   - SAC;
-  - Sala de Apoio;
+  - Drivers OAB;
 - lista prévia dos programas do perfil;
 - caixas de seleção para incluir ou remover itens individualmente;
 - opção de **Modo simulação**;
@@ -116,7 +116,7 @@ O instalador deve baixar diretamente dos sites oficiais os programas que possuem
 
 - Adobe Acrobat Pro DC 2023;
 - Microsoft 365 doméstico por `OfficeSetup.exe`;
-- pacote específico da Sala de Apoio.
+- Instalador Drivers OAB.
 
 ### Comportamento dos downloads
 
@@ -174,7 +174,7 @@ Parâmetros atualmente previstos:
 | Google Drive | `--silent --desktop_shortcut` |
 | TeamViewer Host | `/S` |
 | MicroSIP | `/VERYSILENT /NORESTART` |
-| Pacote Sala de Apoio | `/S` |
+| Instalador Drivers OAB | `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART` |
 
 ### Observação importante
 
@@ -186,7 +186,7 @@ Não existe um parâmetro silencioso universal para arquivos `.exe`. O argumento
 - InstallShield pode usar `/s` ou exigir arquivo de respostas;
 - instaladores personalizados podem possuir parâmetros próprios.
 
-O pacote da Sala de Apoio precisa ser testado para confirmar se `/S` é aceito. Se não for, o argumento deverá ser ajustado no `config.json`. O fato de o script ocultar o processo principal não garante que um instalador incompatível não crie outra janela.
+O Instalador Drivers OAB foi identificado como um instalador Inno Setup. Ele aceita `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`, configurado no `config.json`. O fato de o script ocultar o processo principal não garante que um instalador incompatível não crie outra janela.
 
 ## 9. Adobe Acrobat Pro DC 2023
 
@@ -284,25 +284,25 @@ O projeto chegou a utilizar o MSI do Chrome Enterprise. Embora esse MSI instale 
 - Detectar instalação existente.
 - A URL contém atualmente a versão do arquivo e poderá precisar ser atualizada quando a versão antiga for retirada do servidor.
 
-## 15. Pacote da Sala de Apoio
+## 15. Instalador Drivers OAB
 
 Caminho esperado:
 
 ```text
-Instalador-Padrao\Executáveis\SalaApoio\InstaladorSalaApoio.exe
+Instalador-Padrao\Executáveis\Instalador Drivers OAB\Instalador_Drivers_OAB.exe
 ```
 
 Requisitos:
 
-- o EXE já contém todos os programas específicos da Sala de Apoio;
+- o EXE é o pacote local dos Drivers OAB;
 - deve ser tratado como uma única instalação adicional;
-- deve ser executado somente no perfil Sala de Apoio;
+- deve ser executado somente no perfil Drivers OAB;
 - deve ser executado depois dos componentes do perfil Padrão;
 - deve utilizar instalação silenciosa;
 - deve permanecer oculto;
 - deve ter código de saída e falhas registrados;
 - não possui URL pública conhecida e será fornecido localmente;
-- se tiver outro nome, deverá ser renomeado ou ter o caminho alterado no `config.json`.
+- se tiver outro nome, deverá ter o caminho alterado no `config.json`.
 
 ## 16. Detecção de programas instalados
 
@@ -392,7 +392,7 @@ Perfis aceitos:
 ```text
 Padrao
 SAC
-SalaApoio
+DriversOAB
 ```
 
 Também deve ser possível combinar com `-DryRun`.
@@ -429,8 +429,8 @@ Instalador-Padrao/
       GoogleDriveSetup.exe                 # baixado automaticamente
     MicroSIP/
       MicroSIP-3.22.12.exe                 # baixado automaticamente
-    SalaApoio/
-      InstaladorSalaApoio.exe              # fornecido manualmente
+    Instalador Drivers OAB/
+      Instalador_Drivers_OAB.exe           # fornecido manualmente
     TeamViewer/
       TeamViewer_Host_Setup_x64.exe        # baixado automaticamente
 ```
@@ -446,7 +446,7 @@ Antes da especificação atual, foram discutidos outros instaladores pós-format
 ## 24. Pontos que ainda exigem teste em Windows
 
 1. Confirmar se o `OfficeSetup.exe` doméstico aceita `/quiet` sem abrir interface.
-2. Confirmar qual parâmetro silencioso o `InstaladorSalaApoio.exe` aceita.
+2. Confirmar o comportamento da instalação de Drivers OAB em uma máquina de teste.
 3. Confirmar os parâmetros exatos do `setup.exe` do Adobe colocado em `Executáveis\Adobe`.
 4. Confirmar se o TeamViewer desejado é realmente o Host e não o cliente completo.
 5. Validar os códigos de saída reais de cada instalador.
