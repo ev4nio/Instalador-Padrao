@@ -212,15 +212,31 @@ function Invoke-ProcessChecked {
         [Parameter(Mandatory)][string]$FilePath,
         [string]$Arguments,
         [int[]]$SuccessExitCodes = @(0,1641,3010),
-        [string]$WorkingDirectory
+        [string]$WorkingDirectory,
+        [int]$TimeoutSeconds = 1800,
+        [string]$DisplayName = 'instalador',
+        [scriptblock]$ProgressCallback
     )
     $displayArgs = if ($Arguments) { $Arguments } else { '(sem argumentos)' }
     Write-InstallLog "Executando: $FilePath $displayArgs"
     if ($DryRun) { Write-InstallLog 'Modo simulação: execução ignorada.' 'WARN'; return 0 }
     if (-not (Test-Path -LiteralPath $FilePath)) { throw "Arquivo não encontrado: $FilePath" }
-    $params = @{ FilePath = $FilePath; ArgumentList = $Arguments; Wait = $true; PassThru = $true; WindowStyle = 'Hidden' }
+    $params = @{ FilePath = $FilePath; ArgumentList = $Arguments; PassThru = $true; WindowStyle = 'Hidden' }
     if ($WorkingDirectory) { $params.WorkingDirectory = $WorkingDirectory }
     $process = Start-Process @params
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    while (-not $process.WaitForExit(1000)) {
+        $elapsedSeconds = [int]$watch.Elapsed.TotalSeconds
+        if ($elapsedSeconds -ge $TimeoutSeconds) {
+            throw "A instalação de $DisplayName excedeu o limite de $TimeoutSeconds segundos. O processo não foi encerrado automaticamente."
+        }
+        if ($ProgressCallback) {
+            $elapsedText = '{0:mm\:ss}' -f $watch.Elapsed
+            $percent = [Math]::Min(94, 70 + (($elapsedSeconds / [Math]::Max(1,$TimeoutSeconds)) * 24))
+            & $ProgressCallback "Instalando $DisplayName - tempo decorrido: $elapsedText" $percent
+        }
+    }
+    $process.Refresh()
     if ($SuccessExitCodes -notcontains $process.ExitCode) { throw "Processo encerrou com código $($process.ExitCode)." }
     if ($process.ExitCode -in @(1641,3010)) { Write-InstallLog 'O instalador solicitou reinicialização.' 'WARN' }
     return $process.ExitCode
@@ -238,6 +254,14 @@ function Invoke-ApplicationInstall {
     $packagePath = Invoke-PackageDownload -Application $Application -ProgressCallback $ProgressCallback
     $codes = @($Application.SuccessExitCodes | ForEach-Object { [int]$_ })
     if ($codes.Count -eq 0) { $codes = @(0,1641,3010) }
+    $processTimeout = 1800
+    if ($Application.PSObject.Properties['ProcessTimeoutSeconds']) { $processTimeout = [int]$Application.ProcessTimeoutSeconds }
+    $processParameters = @{
+        SuccessExitCodes = $codes
+        TimeoutSeconds = $processTimeout
+        DisplayName = [string]$Application.Name
+        ProgressCallback = $ProgressCallback
+    }
     $installationSucceeded = $false
     if ($Application.Type -eq 'Iso') {
         $isoPath = $packagePath
@@ -252,7 +276,7 @@ function Invoke-ApplicationInstall {
             $volume = $image | Get-Volume
             if (-not $volume.DriveLetter) { throw 'A ISO foi montada, mas não recebeu uma letra de unidade.' }
             $setup = Join-Path ($volume.DriveLetter + ':\') ([string]$Application.SetupRelativePath)
-            Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -SuccessExitCodes $codes -WorkingDirectory (Split-Path $setup) | Out-Null
+            Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory (Split-Path $setup) @processParameters | Out-Null
         } finally {
             if ($image) { Dismount-DiskImage -ImagePath $isoPath -ErrorAction SilentlyContinue }
         }
@@ -260,16 +284,32 @@ function Invoke-ApplicationInstall {
         $odtFolder = Split-Path -Parent $packagePath
         $setup = Join-Path $odtFolder 'setup.exe'
         if (-not (Test-Path -LiteralPath $setup)) {
-            Invoke-ProcessChecked -FilePath $packagePath -Arguments ('/quiet /extract:"{0}"' -f $odtFolder) -SuccessExitCodes @(0) -WorkingDirectory $odtFolder | Out-Null
+            Invoke-ProcessChecked -FilePath $packagePath -Arguments ('/quiet /extract:"{0}"' -f $odtFolder) -SuccessExitCodes @(0) -WorkingDirectory $odtFolder -TimeoutSeconds $processTimeout -DisplayName ([string]$Application.Name) -ProgressCallback $ProgressCallback | Out-Null
         }
-        Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -SuccessExitCodes $codes -WorkingDirectory $odtFolder | Out-Null
+        Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory $odtFolder @processParameters | Out-Null
     } elseif ($Application.Type -eq 'Msi') {
         $file = $packagePath
         $msiArgs = '/i "{0}" {1}' -f $file, ([string]$Application.Arguments)
-        Invoke-ProcessChecked -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -Arguments $msiArgs -SuccessExitCodes $codes -WorkingDirectory (Split-Path $file) | Out-Null
+        Invoke-ProcessChecked -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -Arguments $msiArgs -WorkingDirectory (Split-Path $file) @processParameters | Out-Null
     } else {
         $file = $packagePath
-        Invoke-ProcessChecked -FilePath $file -Arguments ([string]$Application.Arguments) -SuccessExitCodes $codes -WorkingDirectory (Split-Path $file) | Out-Null
+        Invoke-ProcessChecked -FilePath $file -Arguments ([string]$Application.Arguments) -WorkingDirectory (Split-Path $file) @processParameters | Out-Null
+    }
+    if (-not $DryRun -and $Application.PSObject.Properties['VerifyAfterInstall'] -and [bool]$Application.VerifyAfterInstall) {
+        $verificationTimeout = 300
+        if ($Application.PSObject.Properties['VerificationTimeoutSeconds']) { $verificationTimeout = [int]$Application.VerificationTimeoutSeconds }
+        $verificationWatch = [Diagnostics.Stopwatch]::StartNew()
+        while (-not (Test-ApplicationInstalled $Application)) {
+            if ($verificationWatch.Elapsed.TotalSeconds -ge $verificationTimeout) {
+                throw "O instalador terminou, mas $($Application.Name) não foi detectado após $verificationTimeout segundos."
+            }
+            if ($ProgressCallback) {
+                $elapsedText = '{0:mm\:ss}' -f $verificationWatch.Elapsed
+                & $ProgressCallback "Confirmando a instalação de $($Application.Name) - $elapsedText" 97
+            }
+            Start-Sleep -Seconds 2
+        }
+        Write-InstallLog "$($Application.Name) confirmado no sistema." 'SUCCESS'
     }
     $installationSucceeded = $true
     if ($installationSucceeded -and -not $DryRun) { Remove-ApplicationCache -PackagePath $packagePath }
@@ -311,7 +351,7 @@ function Start-Installation {
         $basePercent = ($index * 100.0) / [Math]::Max(1,$Applications.Count)
         $spanPercent = 100.0 / [Math]::Max(1,$Applications.Count)
         if ($StatusCallback) { & $StatusCallback "Preparando $($app.Name)..." $basePercent }
-        $appCallback = { param($text,$itemPercent) if ($StatusCallback) { & $StatusCallback $text ($basePercent + (($itemPercent/100.0)*$spanPercent*0.65)) } }
+        $appCallback = { param($text,$itemPercent) if ($StatusCallback) { & $StatusCallback $text ($basePercent + (($itemPercent/100.0)*$spanPercent)) } }
         try {
             $results += Invoke-ApplicationInstall $app -ProgressCallback $appCallback
         } catch {
