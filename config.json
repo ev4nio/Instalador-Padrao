@@ -37,7 +37,7 @@
       "ProcessTimeoutSeconds": 3600,
       "VerifyAfterInstall": true,
       "VerificationTimeoutSeconds": 3600,
-      "SuccessExitCodes": [0, 1641, 3010]
+      "SuccessExitCodes": [-1, 0, 1641, 3010]
     },
     {
       "Id": "chrome",
@@ -59,13 +59,17 @@
       "Arguments": "",
       "ShowInstallerWindow": true,
       "SkipIfInstalled": true,
-      "DetectionDisplayName": "Google Drive*",
-      "DetectionPath": "%ProgramFiles%\\Google\\Drive File Stream\\*\\GoogleDriveFS.exe",
+      "DetectionDisplayName": "",
+      "DetectionPath": "",
+      "DetectionPaths": [
+        "%ProgramFiles%\\Google\\Drive File Stream\\*\\GoogleDriveFS.exe",
+        "%ProgramFiles(x86)%\\Google\\Drive File Stream\\*\\GoogleDriveFS.exe"
+      ],
       "MinimumDownloadBytes": 50000000,
       "ProcessTimeoutSeconds": 900,
       "VerifyAfterInstall": true,
       "VerificationTimeoutSeconds": 300,
-      "SuccessExitCodes": [0, 1641, 3010]
+      "SuccessExitCodes": [-1, 0, 1641, 3010]
     },
     {
       "Id": "teamviewer",
