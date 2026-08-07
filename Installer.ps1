@@ -320,25 +320,32 @@ function Invoke-ApplicationInstall {
 function Get-ProfileApplications {
     param([string]$SelectedProfile)
     $ids = @($script:Config.Profiles.$SelectedProfile)
-    return @($script:Config.Applications | Where-Object { $ids -contains $_.Id })
+    $orderedApplications = @()
+    foreach ($id in $ids) {
+        $application = $script:Config.Applications | Where-Object { $_.Id -eq $id } | Select-Object -First 1
+        if ($application) { $orderedApplications += $application }
+    }
+    return $orderedApplications
 }
 
 function Expand-ApplicationDependencies {
     param([array]$Applications)
-    $selectedIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
-    foreach ($app in $Applications) { [void]$selectedIds.Add([string]$app.Id) }
-    $changed = $true
-    while ($changed) {
-        $changed = $false
-        foreach ($app in @($script:Config.Applications | Where-Object { $selectedIds.Contains([string]$_.Id) })) {
-            if ($app.PSObject.Properties['Dependencies']) {
-                foreach ($dependencyId in @($app.Dependencies)) {
-                    if ($selectedIds.Add([string]$dependencyId)) { $changed = $true }
+    $orderedApplications = @()
+    $addedIds = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+    foreach ($app in $Applications) {
+        if ($app.PSObject.Properties['Dependencies']) {
+            foreach ($dependencyId in @($app.Dependencies)) {
+                if (-not $addedIds.Contains([string]$dependencyId)) {
+                    $dependency = $script:Config.Applications | Where-Object { $_.Id -eq $dependencyId } | Select-Object -First 1
+                    if (-not $dependency) { throw "Dependência desconhecida: $dependencyId." }
+                    $orderedApplications += $dependency
+                    [void]$addedIds.Add([string]$dependency.Id)
                 }
             }
         }
+        if ($addedIds.Add([string]$app.Id)) { $orderedApplications += $app }
     }
-    return @($script:Config.Applications | Where-Object { $selectedIds.Contains([string]$_.Id) })
+    return $orderedApplications
 }
 
 function Start-Installation {
