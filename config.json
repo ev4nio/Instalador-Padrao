@@ -57,6 +57,7 @@
       "Path": "Executáveis\\WebView2\\MicrosoftEdgeWebview2Setup.exe",
       "DownloadUrl": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
       "Arguments": "/silent /install",
+      "DownloadTimeoutSeconds": 120,
       "DetectionDisplayName": "Microsoft Edge WebView2 Runtime*",
       "DetectionPath": "",
       "DetectionRegistryPaths": [
@@ -73,9 +74,10 @@
       "Type": "Exe",
       "Path": "Executáveis\\GoogleDrive\\GoogleDriveSetup.exe",
       "DownloadUrl": "https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe",
-      "Arguments": "--silent --desktop_shortcut",
+      "Arguments": "",
+      "ShowInstallerWindow": true,
       "Dependencies": ["webview2"],
-      "SkipIfInstalled": false,
+      "SkipIfInstalled": true,
       "DetectionDisplayName": "Google Drive*",
       "DetectionPath": "%ProgramFiles%\\Google\\Drive File Stream\\*\\GoogleDriveFS.exe",
       "MinimumDownloadBytes": 50000000,
@@ -101,9 +103,17 @@
       "Type": "Exe",
       "Path": "Executáveis\\MicroSIP\\MicroSIP-3.22.12.exe",
       "DownloadUrl": "https://www.microsip.org/download/MicroSIP-3.22.12.exe",
-      "Arguments": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-",
+      "Arguments": "/S",
       "DetectionDisplayName": "MicroSIP*",
-      "DetectionPath": "%ProgramFiles%\\MicroSIP\\microsip.exe",
+      "DetectionPath": "",
+      "DetectionPaths": [
+        "%ProgramFiles%\\MicroSIP\\microsip.exe",
+        "%ProgramFiles(x86)%\\MicroSIP\\microsip.exe",
+        "%LOCALAPPDATA%\\MicroSIP\\microsip.exe",
+        "%APPDATA%\\MicroSIP\\microsip.exe"
+      ],
+      "VerifyAfterInstall": true,
+      "VerificationTimeoutSeconds": 120,
       "SuccessExitCodes": [0, 1641, 3010]
     },
     {
@@ -113,9 +123,11 @@
       "Path": "Executáveis\\DriversOAB\\Instalador_Drivers_OAB.exe",
       "DownloadUrl": "",
       "Arguments": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-",
-      "SkipIfInstalled": false,
-      "DetectionDisplayName": "",
+      "SkipIfInstalled": true,
+      "DetectionDisplayName": "Drivers OAB*",
       "DetectionPath": "",
+      "VerifyAfterInstall": true,
+      "VerificationTimeoutSeconds": 300,
       "SuccessExitCodes": [0, 1641, 3010]
     }
   ]

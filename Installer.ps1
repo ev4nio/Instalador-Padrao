@@ -130,13 +130,15 @@ function Invoke-PackageDownload {
     $partial = "$destination.download"
     Write-InstallLog "Download iniciado: $url"
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    $downloadTimeoutSeconds = 30
+    if ($Application.PSObject.Properties['DownloadTimeoutSeconds']) { $downloadTimeoutSeconds = [int]$Application.DownloadTimeoutSeconds }
     $request = $null; $response = $null; $input = $null; $output = $null
     try {
         $request = [Net.HttpWebRequest]::Create($url)
         $request.UserAgent = 'InstaladorPadrao/1.1'
         $request.AllowAutoRedirect = $true
-        $request.Timeout = 30000
-        $request.ReadWriteTimeout = 30000
+        $request.Timeout = $downloadTimeoutSeconds * 1000
+        $request.ReadWriteTimeout = $downloadTimeoutSeconds * 1000
         $response = $request.GetResponse()
         $total = [long]$response.ContentLength
         $input = $response.GetResponseStream()
@@ -199,7 +201,8 @@ function Test-ApplicationInstalled {
     if ($Application.DetectionDisplayName) {
         $roots = @(
             'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*',
-            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+            'HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*',
+            'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*'
         )
         $pattern = [string]$Application.DetectionDisplayName
         foreach ($root in $roots) {
@@ -258,7 +261,7 @@ function Invoke-ApplicationInstall {
     if ($Application.PSObject.Properties['SkipIfInstalled']) { $skipIfInstalled = [bool]$Application.SkipIfInstalled }
     if (-not $DryRun -and $skipIfInstalled -and (Test-ApplicationInstalled $Application)) {
         Write-InstallLog "$($Application.Name) já está instalado; etapa ignorada." 'SUCCESS'
-        return @{ Name=$Application.Name; Status='Já instalado'; Success=$true }
+        return @{ Id=$Application.Id; Name=$Application.Name; Status='Já instalado'; Success=$true }
     }
     $packagePath = Invoke-PackageDownload -Application $Application -ProgressCallback $ProgressCallback
     $codes = @($Application.SuccessExitCodes | ForEach-Object { [int]$_ })
@@ -279,7 +282,7 @@ function Invoke-ApplicationInstall {
         $isoPath = $packagePath
         if ($DryRun) {
             Write-InstallLog "Modo simulação: montaria a ISO $isoPath" 'WARN'
-            return @{ Name=$Application.Name; Status='Simulado'; Success=$true }
+            return @{ Id=$Application.Id; Name=$Application.Name; Status='Simulado'; Success=$true }
         }
         if (-not (Test-Path -LiteralPath $isoPath)) { throw "ISO não encontrada: $isoPath" }
         $image = $null
@@ -326,7 +329,7 @@ function Invoke-ApplicationInstall {
     $installationSucceeded = $true
     if ($installationSucceeded -and -not $DryRun) { Remove-ApplicationCache -PackagePath $packagePath }
     Write-InstallLog "$($Application.Name) concluído." 'SUCCESS'
-    return @{ Name=$Application.Name; Status=($(if ($DryRun) {'Simulado'} else {'Concluído'})); Success=$true }
+    return @{ Id=$Application.Id; Name=$Application.Name; Status=($(if ($DryRun) {'Simulado'} else {'Concluído'})); Success=$true }
 }
 
 function Get-ProfileApplications {
@@ -371,12 +374,25 @@ function Start-Installation {
         $spanPercent = 100.0 / [Math]::Max(1,$Applications.Count)
         if ($StatusCallback) { & $StatusCallback "Preparando $($app.Name)..." $basePercent }
         $appCallback = { param($text,$itemPercent) if ($StatusCallback) { & $StatusCallback $text ($basePercent + (($itemPercent/100.0)*$spanPercent)) } }
+        $failedDependencies = @()
+        if ($app.PSObject.Properties['Dependencies']) {
+            $dependencyIds = @($app.Dependencies)
+            $failedDependencies = @($results | Where-Object { $_.Id -in $dependencyIds -and -not $_.Success })
+        }
+        if ($failedDependencies.Count) {
+            $dependencyNames = @($failedDependencies | ForEach-Object { $_.Name }) -join ', '
+            $message = "$($app.Name) não foi executado porque a dependência falhou: $dependencyNames."
+            Write-InstallLog $message 'ERROR'
+            $results += @{ Id=$app.Id; Name=$app.Name; Status='Dependência falhou'; Success=$false; Error=$message }
+            $index++
+            continue
+        }
         try {
             $results += Invoke-ApplicationInstall $app -ProgressCallback $appCallback
         } catch {
             $message = "$($app.Name): $($_.Exception.Message)"
             Write-InstallLog $message 'ERROR'
-            $results += @{ Name=$app.Name; Status='Falhou'; Success=$false; Error=$_.Exception.Message }
+            $results += @{ Id=$app.Id; Name=$app.Name; Status='Falhou'; Success=$false; Error=$_.Exception.Message }
             if (-not [bool]$script:Config.ContinueOnError) { break }
         }
         $index++
