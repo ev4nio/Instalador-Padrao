@@ -2,7 +2,7 @@
   "ContinueOnError": true,
   "CachePath": "%USERPROFILE%\\Downloads\\InstaladorPadrao",
   "Profiles": {
-    "Normal": ["adobe", "office365", "chrome", "webview2", "teamviewer", "microsip", "driversoab", "gdrive"]
+    "Normal": ["adobe", "office365", "chrome", "teamviewer", "microsip", "driversoab", "gdrive"]
   },
   "Applications": [
     {
@@ -51,24 +51,6 @@
       "SuccessExitCodes": [0, 1641, 3010]
     },
     {
-      "Id": "webview2",
-      "Name": "Microsoft Edge WebView2 Runtime",
-      "Type": "Exe",
-      "Path": "Executáveis\\WebView2\\MicrosoftEdgeWebview2Setup.exe",
-      "DownloadUrl": "https://go.microsoft.com/fwlink/p/?LinkId=2124703",
-      "Arguments": "/silent /install",
-      "DownloadTimeoutSeconds": 120,
-      "DetectionDisplayName": "Microsoft Edge WebView2 Runtime*",
-      "DetectionPath": "",
-      "DetectionRegistryPaths": [
-        "HKLM:\\SOFTWARE\\WOW6432Node\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
-        "HKLM:\\SOFTWARE\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}",
-        "HKCU:\\Software\\Microsoft\\EdgeUpdate\\Clients\\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}"
-      ],
-      "DetectionRegistryValue": "pv",
-      "SuccessExitCodes": [0, 1641, 3010]
-    },
-    {
       "Id": "gdrive",
       "Name": "Google Drive para computador",
       "Type": "Exe",
@@ -76,7 +58,6 @@
       "DownloadUrl": "https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe",
       "Arguments": "",
       "ShowInstallerWindow": true,
-      "Dependencies": ["webview2"],
       "SkipIfInstalled": true,
       "DetectionDisplayName": "Google Drive*",
       "DetectionPath": "%ProgramFiles%\\Google\\Drive File Stream\\*\\GoogleDriveFS.exe",
