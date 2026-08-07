@@ -7,14 +7,16 @@
   "Applications": [
     {
       "Id": "adobe",
-      "Name": "Adobe Acrobat Pro DC 2023",
+      "Name": "Adobe Acrobat XI",
       "Type": "Exe",
-      "Path": "Executáveis\\Adobe\\setup.exe",
+      "Path": "Executáveis\\Adobe\\Adobe Acrobat XI\\setup.exe",
       "DownloadUrl": "",
       "SetupRelativePath": "",
       "Arguments": "/sAll /rs /rps /msi EULA_ACCEPT=YES",
-      "DetectionDisplayName": "Adobe Acrobat*",
+      "DetectionDisplayName": "Adobe Acrobat XI*",
       "DetectionPath": "",
+      "VerifyAfterInstall": true,
+      "VerificationTimeoutSeconds": 300,
       "SuccessExitCodes": [0, 1641, 3010]
     },
     {
@@ -23,10 +25,18 @@
       "Type": "Exe",
       "Path": "Executáveis\\Office\\OfficeSetup.exe",
       "DownloadUrl": "",
-      "Arguments": "/quiet",
+      "Arguments": "",
+      "ShowInstallerWindow": true,
       "SkipIfInstalled": false,
       "DetectionDisplayName": "",
-      "DetectionPath": "%ProgramFiles%\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+      "DetectionPath": "",
+      "DetectionPaths": [
+        "%ProgramFiles%\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+        "%ProgramFiles(x86)%\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      ],
+      "ProcessTimeoutSeconds": 3600,
+      "VerifyAfterInstall": true,
+      "VerificationTimeoutSeconds": 3600,
       "SuccessExitCodes": [0, 1641, 3010]
     },
     {
@@ -91,7 +101,7 @@
       "Type": "Exe",
       "Path": "Executáveis\\MicroSIP\\MicroSIP-3.22.12.exe",
       "DownloadUrl": "https://www.microsip.org/download/MicroSIP-3.22.12.exe",
-      "Arguments": "/VERYSILENT /NORESTART",
+      "Arguments": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-",
       "DetectionDisplayName": "MicroSIP*",
       "DetectionPath": "%ProgramFiles%\\MicroSIP\\microsip.exe",
       "SuccessExitCodes": [0, 1641, 3010]

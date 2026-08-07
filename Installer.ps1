@@ -186,6 +186,12 @@ function Test-ApplicationInstalled {
             }
         }
     }
+    if ($Application.PSObject.Properties['DetectionPaths']) {
+        foreach ($configuredPath in @($Application.DetectionPaths)) {
+            $expandedPath = [Environment]::ExpandEnvironmentVariables([string]$configuredPath)
+            if (Test-Path -Path $expandedPath) { return $true }
+        }
+    }
     if ($Application.DetectionPath) {
         $path = [Environment]::ExpandEnvironmentVariables([string]$Application.DetectionPath)
         if (Test-Path -Path $path) { return $true }
@@ -215,13 +221,16 @@ function Invoke-ProcessChecked {
         [string]$WorkingDirectory,
         [int]$TimeoutSeconds = 1800,
         [string]$DisplayName = 'instalador',
+        [bool]$ShowWindow = $false,
         [scriptblock]$ProgressCallback
     )
     $displayArgs = if ($Arguments) { $Arguments } else { '(sem argumentos)' }
     Write-InstallLog "Executando: $FilePath $displayArgs"
     if ($DryRun) { Write-InstallLog 'Modo simulação: execução ignorada.' 'WARN'; return 0 }
     if (-not (Test-Path -LiteralPath $FilePath)) { throw "Arquivo não encontrado: $FilePath" }
-    $params = @{ FilePath = $FilePath; ArgumentList = $Arguments; PassThru = $true; WindowStyle = 'Hidden' }
+    $params = @{ FilePath = $FilePath; PassThru = $true }
+    if (-not [string]::IsNullOrWhiteSpace($Arguments)) { $params.ArgumentList = $Arguments }
+    if (-not $ShowWindow) { $params.WindowStyle = 'Hidden' }
     if ($WorkingDirectory) { $params.WorkingDirectory = $WorkingDirectory }
     $process = Start-Process @params
     $watch = [Diagnostics.Stopwatch]::StartNew()
@@ -256,10 +265,13 @@ function Invoke-ApplicationInstall {
     if ($codes.Count -eq 0) { $codes = @(0,1641,3010) }
     $processTimeout = 1800
     if ($Application.PSObject.Properties['ProcessTimeoutSeconds']) { $processTimeout = [int]$Application.ProcessTimeoutSeconds }
+    $showInstallerWindow = $false
+    if ($Application.PSObject.Properties['ShowInstallerWindow']) { $showInstallerWindow = [bool]$Application.ShowInstallerWindow }
     $processParameters = @{
         SuccessExitCodes = $codes
         TimeoutSeconds = $processTimeout
         DisplayName = [string]$Application.Name
+        ShowWindow = $showInstallerWindow
         ProgressCallback = $ProgressCallback
     }
     $installationSucceeded = $false
