@@ -30,6 +30,11 @@
       "SkipIfInstalled": false,
       "DetectionDisplayName": "",
       "DetectionPath": "",
+      "DetectionRegistryPaths": [
+        "HKLM:\\SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration"
+      ],
+      "DetectionRegistryValue": "ProductReleaseIds",
+      "DetectionRegistryMatch": "ProPlus2021Volume",
       "DetectionPaths": [
         "%ProgramFiles%\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
         "%ProgramFiles(x86)%\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
@@ -50,6 +55,11 @@
       "SkipIfInstalled": false,
       "DetectionDisplayName": "",
       "DetectionPath": "",
+      "DetectionRegistryPaths": [
+        "HKLM:\\SOFTWARE\\Microsoft\\Office\\ClickToRun\\Configuration"
+      ],
+      "DetectionRegistryValue": "ProductReleaseIds",
+      "DetectionRegistryMatch": "O365",
       "DetectionPaths": [
         "%ProgramFiles%\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
         "%ProgramFiles(x86)%\\Microsoft Office\\root\\Office16\\WINWORD.EXE"

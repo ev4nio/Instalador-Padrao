@@ -1,4 +1,4 @@
-﻿#requires -version 5.1
+#requires -version 5.1
 param(
     [switch]$Elevated,
     [switch]$Silent,
@@ -178,12 +178,20 @@ function Test-ApplicationInstalled {
     param([Parameter(Mandatory)]$Application)
     if ($Application.PSObject.Properties['DetectionRegistryPaths']) {
         $valueName = [string]$Application.DetectionRegistryValue
+        $expectedMatch = $null
+        if ($Application.PSObject.Properties['DetectionRegistryMatch']) {
+            $expectedMatch = [string]$Application.DetectionRegistryMatch
+        }
         foreach ($registryPath in @($Application.DetectionRegistryPaths)) {
             $registryItem = Get-ItemProperty -LiteralPath ([string]$registryPath) -ErrorAction SilentlyContinue
             if ($registryItem) {
                 $versionProperty = $registryItem.PSObject.Properties[$valueName]
                 if ($versionProperty -and -not [string]::IsNullOrWhiteSpace([string]$versionProperty.Value) -and [string]$versionProperty.Value -ne '0.0.0.0') {
-                    return $true
+                    if ($expectedMatch) {
+                        if ([string]$versionProperty.Value -like "*$expectedMatch*") { return $true }
+                    } else {
+                        return $true
+                    }
                 }
             }
         }
@@ -191,7 +199,11 @@ function Test-ApplicationInstalled {
     if ($Application.PSObject.Properties['DetectionPaths']) {
         foreach ($configuredPath in @($Application.DetectionPaths)) {
             $expandedPath = [Environment]::ExpandEnvironmentVariables([string]$configuredPath)
-            if (Test-Path -Path $expandedPath) { return $true }
+            if (Test-Path -Path $expandedPath) {
+                if (-not $Application.PSObject.Properties['DetectionRegistryPaths']) {
+                    return $true
+                }
+            }
         }
     }
     if ($Application.DetectionPath) {
@@ -214,6 +226,47 @@ function Test-ApplicationInstalled {
         }
     }
     return $false
+}
+
+function Wait-OfficeClickToRun {
+    param(
+        [string]$DisplayName = 'Microsoft Office',
+        [int]$TimeoutSeconds = 3600,
+        [scriptblock]$ProgressCallback
+    )
+    if ($DryRun) { return }
+    Write-InstallLog "Aguardando o disparador do Office (OfficeC2RClient/OfficeClickToRun)..."
+    Start-Sleep -Seconds 4
+    $watch = [Diagnostics.Stopwatch]::StartNew()
+    $foundProcess = $false
+
+    # Aguarda ate 30 segundos para o processo OfficeC2RClient ou setup iniciar
+    while ($watch.Elapsed.TotalSeconds -lt 30) {
+        $c2r = Get-Process -Name 'OfficeC2RClient', 'setup' -ErrorAction SilentlyContinue
+        if ($c2r) {
+            $foundProcess = $true
+            break
+        }
+        Start-Sleep -Seconds 1
+    }
+
+    if ($foundProcess) {
+        Write-InstallLog "Instalador do Office em execução em segundo plano. Aguardando conclusão..."
+        while ($watch.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+            $c2r = Get-Process -Name 'OfficeC2RClient' -ErrorAction SilentlyContinue
+            if (-not $c2r) {
+                Write-InstallLog "Processo de instalação do Office concluído com sucesso." 'SUCCESS'
+                break
+            }
+            if ($ProgressCallback) {
+                $elapsedText = '{0:mm\:ss}' -f $watch.Elapsed
+                & $ProgressCallback "Instalando $DisplayName em segundo plano... ($elapsedText)" 60
+            }
+            Start-Sleep -Seconds 3
+        }
+    } else {
+        Write-InstallLog "Nenhum processo OfficeC2RClient detectado após iniciar o setup." 'WARN'
+    }
 }
 
 function Invoke-ProcessChecked {
@@ -302,6 +355,7 @@ function Invoke-ApplicationInstall {
             Invoke-ProcessChecked -FilePath $packagePath -Arguments ('/quiet /extract:"{0}"' -f $odtFolder) -SuccessExitCodes @(0) -WorkingDirectory $odtFolder -TimeoutSeconds $processTimeout -DisplayName ([string]$Application.Name) -ProgressCallback $ProgressCallback | Out-Null
         }
         Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory $odtFolder @processParameters | Out-Null
+        Wait-OfficeClickToRun -DisplayName ([string]$Application.Name) -TimeoutSeconds $processTimeout -ProgressCallback $ProgressCallback
     } elseif ($Application.Type -eq 'OfficeIso') {
         # Instala o Office montando a imagem .img/.iso e passando configuration.xml por caminho absoluto.
         # Desta forma, nenhum Setup.exe externo precisa existir — tudo vem de dentro da imagem.
@@ -329,6 +383,7 @@ function Invoke-ApplicationInstall {
             if (-not (Test-Path -LiteralPath $setup)) { throw "setup.exe nao encontrado na imagem montada ($($volume.DriveLetter):\)." }
             Write-InstallLog "Executando Office setup a partir da imagem: $setup"
             Invoke-ProcessChecked -FilePath $setup -Arguments "/configure `"$configXml`"" -WorkingDirectory ($volume.DriveLetter + ':\') @processParameters | Out-Null
+            Wait-OfficeClickToRun -DisplayName ([string]$Application.Name) -TimeoutSeconds $processTimeout -ProgressCallback $ProgressCallback
         } finally {
             if ($image) {
                 Write-InstallLog "Desmontando imagem Office: $isoPath"
