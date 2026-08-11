@@ -1,11 +1,29 @@
-# Instaladores proprietários ou fornecidos manualmente.
+# Executáveis proprietários e pacotes locais (sem acento no nome da pasta)
+Executaveis/**/*.exe
+Executaveis/**/*.msi
+Executaveis/**/*.msp
+Executaveis/**/*.iso
+Executaveis/**/*.img
+Executaveis/**/*.download
+Executaveis/**/*.cab
+Executaveis/**/*.c2rx
+Executaveis/**/*.cat
+Executaveis/Office2021/Office/
+
+# Compatibilidade com acento (caso alguém crie localmente)
 Executáveis/**/*.exe
 Executáveis/**/*.msi
+Executáveis/**/*.msp
 Executáveis/**/*.iso
-Instalador-Padrao/Executáveis/**/*.exe
-Instalador-Padrao/Executáveis/**/*.msi
-Instalador-Padrao/Executáveis/**/*.iso
-
-# Arquivos temporários gerados durante downloads.
+Executáveis/**/*.img
 Executáveis/**/*.download
-Instalador-Padrao/Executáveis/**/*.download
+Executáveis/**/*.cab
+Executáveis/**/*.c2rx
+Executáveis/**/*.cat
+Executáveis/Office2021/Office/
+
+# Arquivos temporários e logs
+*.log
+scratch/
+.vs/
+.idea/

@@ -1,0 +1,2 @@
+# Esta pasta deve conter os executáveis e instaladores do projeto.
+# Os arquivos executáveis (*.exe, *.msi, *.iso, *.img) são ignorados pelo .gitignore para a publicação no Git.

@@ -302,6 +302,39 @@ function Invoke-ApplicationInstall {
             Invoke-ProcessChecked -FilePath $packagePath -Arguments ('/quiet /extract:"{0}"' -f $odtFolder) -SuccessExitCodes @(0) -WorkingDirectory $odtFolder -TimeoutSeconds $processTimeout -DisplayName ([string]$Application.Name) -ProgressCallback $ProgressCallback | Out-Null
         }
         Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory $odtFolder @processParameters | Out-Null
+    } elseif ($Application.Type -eq 'OfficeIso') {
+        # Instala o Office montando a imagem .img/.iso e passando configuration.xml por caminho absoluto.
+        # Desta forma, nenhum Setup.exe externo precisa existir — tudo vem de dentro da imagem.
+        $isoPath = $packagePath
+        if ($DryRun) {
+            Write-InstallLog "Modo simulacao: montaria a imagem Office $isoPath" 'WARN'
+            return @{ Id=$Application.Id; Name=$Application.Name; Status='Simulado'; Success=$true }
+        }
+        if (-not (Test-Path -LiteralPath $isoPath)) { throw "Imagem Office nao encontrada: $isoPath" }
+        # Resolve configuration.xml: campo ConfigXml no config.json tem prioridade; se ausente, procura ao lado da imagem
+        $configXml = $null
+        if ($Application.PSObject.Properties['ConfigXml'] -and -not [string]::IsNullOrWhiteSpace([string]$Application.ConfigXml)) {
+            $configXml = Resolve-PackagePath ([string]$Application.ConfigXml)
+        } else {
+            $configXml = Join-Path (Split-Path -Parent $isoPath) 'configuration.xml'
+        }
+        if (-not (Test-Path -LiteralPath $configXml)) { throw "configuration.xml nao encontrado: $configXml" }
+        Write-InstallLog "Montando imagem Office: $isoPath"
+        $image = $null
+        try {
+            $image = Mount-DiskImage -ImagePath $isoPath -PassThru
+            $volume = $image | Get-Volume
+            if (-not $volume.DriveLetter) { throw 'A imagem foi montada, mas nao recebeu uma letra de unidade.' }
+            $setup = Join-Path ($volume.DriveLetter + ':\') 'setup.exe'
+            if (-not (Test-Path -LiteralPath $setup)) { throw "setup.exe nao encontrado na imagem montada ($($volume.DriveLetter):\)." }
+            Write-InstallLog "Executando Office setup a partir da imagem: $setup"
+            Invoke-ProcessChecked -FilePath $setup -Arguments "/configure `"$configXml`"" -WorkingDirectory ($volume.DriveLetter + ':\') @processParameters | Out-Null
+        } finally {
+            if ($image) {
+                Write-InstallLog "Desmontando imagem Office: $isoPath"
+                Dismount-DiskImage -ImagePath $isoPath -ErrorAction SilentlyContinue
+            }
+        }
     } elseif ($Application.Type -eq 'Msi') {
         $file = $packagePath
         $msiArgs = '/i "{0}" {1}' -f $file, ([string]$Application.Arguments)
@@ -409,60 +442,517 @@ function Load-Configuration {
     $script:CacheRoot = Get-CacheRoot
 }
 
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JANELA PRINCIPAL — UI COM SUPORTE A TEMA CLARO E TEMA ESCURO
+# ─────────────────────────────────────────────────────────────────────────────
 function Show-MainWindow {
     Add-Type -AssemblyName PresentationFramework,PresentationCore,WindowsBase
+
     [xml]$xaml = @'
-<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" Title="Instalador Padrão" Height="650" Width="820" WindowStartupLocation="CenterScreen" ResizeMode="CanMinimize" Background="#F4F6F9">
- <Grid Margin="22"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-  <StackPanel><TextBlock Text="Instalador de programas" FontSize="27" FontWeight="SemiBold" Foreground="#172033"/><TextBlock Text="Desmarque abaixo os programas que não deseja instalar." Margin="0,5,0,18" Foreground="#5E687A"/></StackPanel>
-  <Grid Grid.Row="1" Margin="0,0,0,14"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><StackPanel><TextBlock Text="Modo de instalação" FontWeight="SemiBold"/><ComboBox Name="ProfileBox" Width="280" HorizontalAlignment="Left" Margin="0,6,0,0"><ComboBoxItem Tag="Normal">Normal</ComboBoxItem></ComboBox></StackPanel><CheckBox Name="DryRunBox" Grid.Column="1" Content="Modo simulação" VerticalAlignment="Bottom" Margin="25,0,0,7" ToolTip="Gera o log sem executar os instaladores."/></Grid>
-  <Border Grid.Row="2" Background="White" BorderBrush="#D9DEE8" BorderThickness="1" CornerRadius="7" Padding="16"><DockPanel><TextBlock DockPanel.Dock="Top" Text="Prévia — desmarque o que não quiser instalar" FontWeight="SemiBold" Margin="0,0,0,12"/><ScrollViewer VerticalScrollBarVisibility="Auto"><StackPanel Name="AppsPanel"/></ScrollViewer></DockPanel></Border>
-  <StackPanel Grid.Row="3" Margin="0,14,0,12"><ProgressBar Name="Progress" Height="8" Minimum="0" Maximum="100"/><TextBlock Name="StatusText" Text="Pronto para iniciar." Margin="0,7,0,0" Foreground="#5E687A"/></StackPanel>
-  <Grid Grid.Row="4"><Button Name="LogButton" Content="Abrir pasta de logs" HorizontalAlignment="Left" Padding="16,9"/><StackPanel Orientation="Horizontal" HorizontalAlignment="Right"><Button Name="CloseButton" Content="Fechar" Padding="20,9" Margin="0,0,10,0"/><Button Name="InstallButton" Content="Instalar selecionados" Padding="20,9" Background="#1769E0" Foreground="White" FontWeight="SemiBold"/></StackPanel></Grid>
- </Grid>
+<Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Instalador Padrao"
+        Height="620" Width="740"
+        MinHeight="500" MinWidth="640"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="CanResize"
+        Background="#F4F6F9"
+        Name="RootWindow">
+
+  <Window.Resources>
+
+    <!-- Botao Primario (Instalar) com animacao/triggers -->
+    <Style x:Key="BtnPrimary" TargetType="Button">
+      <Setter Property="Foreground" Value="White"/>
+      <Setter Property="FontSize" Value="13"/>
+      <Setter Property="FontWeight" Value="SemiBold"/>
+      <Setter Property="Padding" Value="24,9"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="#0066CC" CornerRadius="4" Padding="{TemplateBinding Padding}" RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="BdScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#0052A3"/>
+              </Trigger>
+              <Trigger Property="IsPressed" Value="True">
+                <Setter TargetName="Bd" Property="RenderTransform">
+                  <Setter.Value>
+                    <ScaleTransform ScaleX="0.97" ScaleY="0.97"/>
+                  </Setter.Value>
+                </Setter>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Background" Value="#B0BEC5"/>
+                <Setter Property="Foreground" Value="#ECEFF1"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Botao Secundario -->
+    <Style x:Key="BtnSecondary" TargetType="Button">
+      <Setter Property="Foreground" Value="#333333"/>
+      <Setter Property="FontSize" Value="12.5"/>
+      <Setter Property="Padding" Value="16,8"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="#FFFFFF" BorderBrush="#CCCCCC" CornerRadius="4" Padding="{TemplateBinding Padding}" BorderThickness="{TemplateBinding BorderThickness}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#F0F0F0"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#999999"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Bd" Property="Background" Value="#F5F5F5"/>
+                <Setter TargetName="Bd" Property="BorderBrush" Value="#E0E0E0"/>
+                <Setter Property="Foreground" Value="#A0A0A0"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Botao Alternar Tema -->
+    <Style x:Key="BtnThemeToggle" TargetType="Button">
+      <Setter Property="Foreground" Value="#0066CC"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="12,5"/>
+      <Setter Property="BorderThickness" Value="1"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="#E6F2FF" BorderBrush="#BBE0FF" CornerRadius="4" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#CCE5FF"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- Botao Ghost (Marcar/Desmarcar) -->
+    <Style x:Key="BtnGhost" TargetType="Button">
+      <Setter Property="Foreground" Value="#0066CC"/>
+      <Setter Property="FontSize" Value="12"/>
+      <Setter Property="Padding" Value="8,4"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Background" Value="Transparent"/>
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="Button">
+            <Border x:Name="Bd" Background="{TemplateBinding Background}" CornerRadius="3" Padding="{TemplateBinding Padding}">
+              <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Bd" Property="Background" Value="#E6F0FA"/>
+              </Trigger>
+              <Trigger Property="IsEnabled" Value="False">
+                <Setter Property="Foreground" Value="#A0A0A0"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- App Item CheckBox -->
+    <Style x:Key="AppRow" TargetType="CheckBox">
+      <Setter Property="Cursor" Value="Hand"/>
+      <Setter Property="Margin" Value="0"/>
+      <Setter Property="FocusVisualStyle" Value="{x:Null}"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="CheckBox">
+            <Border x:Name="Row" Background="White" BorderThickness="0,0,0,1" BorderBrush="#EAEAEA" Padding="16,11">
+              <Grid>
+                <Grid.ColumnDefinitions>
+                  <ColumnDefinition Width="Auto"/>
+                  <ColumnDefinition Width="*"/>
+                  <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+
+                <Border x:Name="CkBd" Grid.Column="0" Width="18" Height="18" CornerRadius="3"
+                        BorderThickness="1.5" BorderBrush="#AAAAAA" Background="White" VerticalAlignment="Center" Margin="0,0,12,0">
+                  <Path x:Name="CkMark" Stroke="White" StrokeThickness="2"
+                        StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                        Data="M3,9 L7,13 L15,4"
+                        HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Visibility="Collapsed"/>
+                </Border>
+
+                <TextBlock x:Name="AppTitle" Grid.Column="1" Text="{TemplateBinding Content}"
+                           FontSize="13" Foreground="#222222" VerticalAlignment="Center"/>
+
+                <Border x:Name="Badge" Grid.Column="2" CornerRadius="10" Padding="8,2"
+                        Background="#E6F2FF" Visibility="Collapsed" VerticalAlignment="Center">
+                  <TextBlock Text="Selecionado" FontSize="11" Foreground="#0066CC"/>
+                </Border>
+              </Grid>
+            </Border>
+            <ControlTemplate.Triggers>
+              <Trigger Property="IsChecked" Value="True">
+                <Setter TargetName="CkBd" Property="Background" Value="#0066CC"/>
+                <Setter TargetName="CkBd" Property="BorderBrush" Value="#0066CC"/>
+                <Setter TargetName="CkMark" Property="Visibility" Value="Visible"/>
+                <Setter TargetName="Badge" Property="Visibility" Value="Visible"/>
+              </Trigger>
+              <Trigger Property="IsMouseOver" Value="True">
+                <Setter TargetName="Row" Property="Background" Value="#F8FAFC"/>
+              </Trigger>
+            </ControlTemplate.Triggers>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+    <!-- ProgressBar Style -->
+    <Style x:Key="PBar" TargetType="ProgressBar">
+      <Setter Property="Height" Value="8"/>
+      <Setter Property="BorderThickness" Value="0"/>
+      <Setter Property="Template">
+        <Setter.Value>
+          <ControlTemplate TargetType="ProgressBar">
+            <Border CornerRadius="4" Background="#E0E6ED" ClipToBounds="True" Height="8">
+              <Grid>
+                <Rectangle x:Name="PART_Indicator" HorizontalAlignment="Left" Fill="#0066CC"/>
+              </Grid>
+            </Border>
+          </ControlTemplate>
+        </Setter.Value>
+      </Setter>
+    </Style>
+
+  </Window.Resources>
+
+  <Grid Name="MainGrid">
+    <Grid.RowDefinitions>
+      <RowDefinition Height="Auto"/> <!-- Header -->
+      <RowDefinition Height="Auto"/> <!-- Toolbar -->
+      <RowDefinition Height="*"/>    <!-- App list -->
+      <RowDefinition Height="Auto"/> <!-- Progress -->
+      <RowDefinition Height="Auto"/> <!-- Result panel -->
+      <RowDefinition Height="Auto"/> <!-- Footer -->
+    </Grid.RowDefinitions>
+
+    <!-- HEADER -->
+    <Border Name="HeaderBorder" Grid.Row="0" Background="White" BorderBrush="#E0E4E8" BorderThickness="0,0,0,1" Padding="24,18">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <StackPanel Grid.Column="0">
+          <TextBlock Name="HeaderTitle" FontSize="20" FontWeight="Bold" Foreground="#111827" Text="Instalador Padrao"/>
+          <TextBlock Name="HeaderSub" FontSize="12" Foreground="#6B7280" Margin="0,4,0,0" Text="Selecione os programas que deseja instalar na maquina."/>
+        </StackPanel>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+          <CheckBox Name="DryRunBox" VerticalAlignment="Center" Margin="0,0,16,0">
+            <TextBlock Name="DryRunText" FontSize="12" Foreground="#4B5563" Text="Modo simulacao"/>
+          </CheckBox>
+          <Button Name="ThemeToggleBtn" Content="Modo Escuro" Style="{StaticResource BtnThemeToggle}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- TOOLBAR -->
+    <Border Name="ToolbarBorder" Grid.Row="1" Background="#F8FAFC" BorderBrush="#E0E4E8" BorderThickness="0,0,0,1" Padding="20,8">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <TextBlock Name="CountLabel" Grid.Column="0" FontSize="12" Foreground="#4B5563" VerticalAlignment="Center"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal">
+          <Button Name="SelectAllBtn" Content="Marcar todos" Style="{StaticResource BtnGhost}" Margin="0,0,6,0"/>
+          <Button Name="ClearAllBtn" Content="Desmarcar todos" Style="{StaticResource BtnGhost}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+    <!-- APP LIST CONTAINER -->
+    <Border Name="AppListBorder" Grid.Row="2" Margin="20,14,20,0" CornerRadius="6" Background="White" BorderBrush="#E0E4E8" BorderThickness="1">
+      <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel Name="AppsPanel"/>
+      </ScrollViewer>
+    </Border>
+
+    <!-- PROGRESS CONTAINER -->
+    <Border Name="ProgressBorder" Grid.Row="3" Margin="20,12,20,0" CornerRadius="6" Background="White" BorderBrush="#E0E4E8" BorderThickness="1" Padding="16,12">
+      <StackPanel>
+        <Grid Margin="0,0,0,6">
+          <TextBlock Name="ProgressTitle" Text="Progresso da instalacao" FontSize="11" FontWeight="SemiBold" Foreground="#374151"/>
+          <TextBlock Name="PercentLabel" Text="0%" FontSize="11" FontWeight="Bold" Foreground="#0066CC" HorizontalAlignment="Right"/>
+        </Grid>
+        <ProgressBar Name="Progress" Style="{StaticResource PBar}" Minimum="0" Maximum="100" Value="0"/>
+        <TextBlock Name="StatusText" Text="Pronto para iniciar." FontSize="11.5" Foreground="#6B7280" Margin="0,6,0,0"/>
+      </StackPanel>
+    </Border>
+
+    <!-- RESULT PANEL -->
+    <Border Name="ResultPanel" Grid.Row="4" Margin="20,8,20,0" CornerRadius="6" Background="#F0F7FF" BorderBrush="#BAE6FD" BorderThickness="1" Padding="14,10" Visibility="Collapsed">
+      <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="100">
+        <StackPanel Name="ResultItems"/>
+      </ScrollViewer>
+    </Border>
+
+    <!-- FOOTER -->
+    <Border Name="FooterBorder" Grid.Row="5" Background="White" BorderBrush="#E0E4E8" BorderThickness="0,1,0,0" Padding="20,14" Margin="0,12,0,0">
+      <Grid>
+        <Grid.ColumnDefinitions>
+          <ColumnDefinition Width="Auto"/>
+          <ColumnDefinition Width="*"/>
+          <ColumnDefinition Width="Auto"/>
+        </Grid.ColumnDefinitions>
+        <Button Name="LogButton" Grid.Column="0" Content="Ver logs" Style="{StaticResource BtnSecondary}"/>
+        <StackPanel Grid.Column="2" Orientation="Horizontal">
+          <Button Name="CloseButton" Content="Fechar" Style="{StaticResource BtnSecondary}" Margin="0,0,10,0"/>
+          <Button Name="InstallButton" Content="Instalar selecionados" Style="{StaticResource BtnPrimary}"/>
+        </StackPanel>
+      </Grid>
+    </Border>
+
+  </Grid>
 </Window>
 '@
-    $reader = [Xml.XmlNodeReader]::new($xaml)
-    $window = [Windows.Markup.XamlReader]::Load($reader)
-    $profileBox = $window.FindName('ProfileBox'); $appsPanel = $window.FindName('AppsPanel')
-    $installButton = $window.FindName('InstallButton'); $closeButton = $window.FindName('CloseButton')
-    $logButton = $window.FindName('LogButton'); $progress = $window.FindName('Progress')
-    $statusText = $window.FindName('StatusText'); $dryRunBox = $window.FindName('DryRunBox')
+
+    $reader  = [Xml.XmlNodeReader]::new($xaml)
+    $window  = [Windows.Markup.XamlReader]::Load($reader)
+
+    # ── Referencias de controles ──
+    $headerBorder   = $window.FindName('HeaderBorder')
+    $headerTitle    = $window.FindName('HeaderTitle')
+    $headerSub      = $window.FindName('HeaderSub')
+    $dryRunText     = $window.FindName('DryRunText')
+    $themeToggleBtn = $window.FindName('ThemeToggleBtn')
+    $toolbarBorder  = $window.FindName('ToolbarBorder')
+    $countLabel     = $window.FindName('CountLabel')
+    $appListBorder  = $window.FindName('AppListBorder')
+    $appsPanel      = $window.FindName('AppsPanel')
+    $progressBorder = $window.FindName('ProgressBorder')
+    $progressTitle  = $window.FindName('ProgressTitle')
+    $percentLabel   = $window.FindName('PercentLabel')
+    $progress       = $window.FindName('Progress')
+    $statusText     = $window.FindName('StatusText')
+    $resultPanel    = $window.FindName('ResultPanel')
+    $resultItems    = $window.FindName('ResultItems')
+    $footerBorder   = $window.FindName('FooterBorder')
+    $installButton  = $window.FindName('InstallButton')
+    $closeButton    = $window.FindName('CloseButton')
+    $logButton      = $window.FindName('LogButton')
+    $dryRunBox      = $window.FindName('DryRunBox')
+    $selectAllBtn   = $window.FindName('SelectAllBtn')
+    $clearAllBtn    = $window.FindName('ClearAllBtn')
+
     $script:checkBoxes = @{}
-    $refresh = {
-        $appsPanel.Children.Clear(); $script:checkBoxes = @{}
-        $tag = [string](($profileBox.SelectedItem).Tag)
-        foreach ($app in (Get-ProfileApplications $tag)) {
-            $cb = [Windows.Controls.CheckBox]::new(); $cb.Content = $app.Name; $cb.IsChecked = $true; $cb.Tag = $app.Id; $cb.Margin = '2,7,2,7'; $cb.FontSize = 14
-            $appsPanel.Children.Add($cb) | Out-Null; $script:checkBoxes[$app.Id] = $cb
+    $script:isDarkMode  = $false
+
+    # ── Alternar Tema (Modo Claro / Modo Escuro) ──
+    $applyTheme = {
+        $bc = [Windows.Media.BrushConverter]::new()
+        if ($script:isDarkMode) {
+            # DARK MODE (Slate Dark)
+            $window.Background         = $bc.ConvertFromString('#0F172A')
+            $headerBorder.Background   = $bc.ConvertFromString('#1E293B')
+            $headerBorder.BorderBrush = $bc.ConvertFromString('#334155')
+            $headerTitle.Foreground    = $bc.ConvertFromString('#F8FAFC')
+            $headerSub.Foreground      = $bc.ConvertFromString('#94A3B8')
+            $dryRunText.Foreground     = $bc.ConvertFromString('#CBD5E1')
+            $toolbarBorder.Background  = $bc.ConvertFromString('#0F172A')
+            $toolbarBorder.BorderBrush = $bc.ConvertFromString('#334155')
+            $countLabel.Foreground     = $bc.ConvertFromString('#94A3B8')
+            $appListBorder.Background  = $bc.ConvertFromString('#1E293B')
+            $appListBorder.BorderBrush = $bc.ConvertFromString('#334155')
+            $progressBorder.Background = $bc.ConvertFromString('#1E293B')
+            $progressBorder.BorderBrush= $bc.ConvertFromString('#334155')
+            $progressTitle.Foreground  = $bc.ConvertFromString('#CBD5E1')
+            $statusText.Foreground     = $bc.ConvertFromString('#94A3B8')
+            $footerBorder.Background   = $bc.ConvertFromString('#1E293B')
+            $footerBorder.BorderBrush  = $bc.ConvertFromString('#334155')
+            $themeToggleBtn.Content    = "Modo Claro"
+
+            foreach ($cb in $script:checkBoxes.Values) {
+                $row = $cb.Template.FindName('Row', $cb)
+                if ($row) {
+                    $row.Background  = $bc.ConvertFromString('#1E293B')
+                    $row.BorderBrush = $bc.ConvertFromString('#334155')
+                }
+                $txt = $cb.Template.FindName('AppTitle', $cb)
+                if ($txt) {
+                    $txt.Foreground = $bc.ConvertFromString('#F8FAFC')
+                }
+            }
+        } else {
+            # LIGHT MODE (Crisp Light)
+            $window.Background         = $bc.ConvertFromString('#F4F6F9')
+            $headerBorder.Background   = $bc.ConvertFromString('#FFFFFF')
+            $headerBorder.BorderBrush = $bc.ConvertFromString('#E0E4E8')
+            $headerTitle.Foreground    = $bc.ConvertFromString('#111827')
+            $headerSub.Foreground      = $bc.ConvertFromString('#6B7280')
+            $dryRunText.Foreground     = $bc.ConvertFromString('#4B5563')
+            $toolbarBorder.Background  = $bc.ConvertFromString('#F8FAFC')
+            $toolbarBorder.BorderBrush = $bc.ConvertFromString('#E0E4E8')
+            $countLabel.Foreground     = $bc.ConvertFromString('#4B5563')
+            $appListBorder.Background  = $bc.ConvertFromString('#FFFFFF')
+            $appListBorder.BorderBrush = $bc.ConvertFromString('#E0E4E8')
+            $progressBorder.Background = $bc.ConvertFromString('#FFFFFF')
+            $progressBorder.BorderBrush= $bc.ConvertFromString('#E0E4E8')
+            $progressTitle.Foreground  = $bc.ConvertFromString('#374151')
+            $statusText.Foreground     = $bc.ConvertFromString('#6B7280')
+            $footerBorder.Background   = $bc.ConvertFromString('#FFFFFF')
+            $footerBorder.BorderBrush  = $bc.ConvertFromString('#E0E4E8')
+            $themeToggleBtn.Content    = "Modo Escuro"
+
+            foreach ($cb in $script:checkBoxes.Values) {
+                $row = $cb.Template.FindName('Row', $cb)
+                if ($row) {
+                    $row.Background  = $bc.ConvertFromString('#FFFFFF')
+                    $row.BorderBrush = $bc.ConvertFromString('#EAEAEA')
+                }
+                $txt = $cb.Template.FindName('AppTitle', $cb)
+                if ($txt) {
+                    $txt.Foreground = $bc.ConvertFromString('#222222')
+                }
+            }
         }
     }
+
+    $themeToggleBtn.Add_Click({
+        $script:isDarkMode = -not $script:isDarkMode
+        & $applyTheme
+    })
+
+    # ── Atualiza contador ──
+    $updateCount = {
+        $total    = $script:checkBoxes.Count
+        $selected = @($script:checkBoxes.Values | Where-Object { $_.IsChecked }).Count
+        $countLabel.Text = "$selected de $total selecionados"
+    }
+
+    # ── Preenche lista de apps ──
+    $appsPanel.Children.Clear()
+    $script:checkBoxes = @{}
+    foreach ($app in (Get-ProfileApplications 'Normal')) {
+        $cb           = [Windows.Controls.CheckBox]::new()
+        $cb.Style     = $window.Resources['AppRow']
+        $cb.Content   = $app.Name
+        $cb.IsChecked = $true
+        $cb.Tag       = $app.Id
+        $cb.Add_Checked({ & $updateCount })
+        $cb.Add_Unchecked({ & $updateCount })
+        $appsPanel.Children.Add($cb) | Out-Null
+        $script:checkBoxes[$app.Id] = $cb
+    }
+    & $updateCount
+
     $dryRunBox.IsChecked = $DryRun
-    $profileBox.Add_SelectionChanged($refresh); $profileBox.SelectedIndex = 0
+
+    # ── Marcar / Desmarcar todos ──
+    $selectAllBtn.Add_Click({ foreach ($cb in $script:checkBoxes.Values) { $cb.IsChecked = $true  } })
+    $clearAllBtn.Add_Click({  foreach ($cb in $script:checkBoxes.Values) { $cb.IsChecked = $false } })
+
+    # ── Fechar / Logs ──
     $closeButton.Add_Click({ $window.Close() })
-    $logButton.Add_Click({ if (-not (Test-Path $LogRoot)) { New-Item -ItemType Directory -Path $LogRoot -Force | Out-Null }; Start-Process explorer.exe $LogRoot })
+    $logButton.Add_Click({
+        if (-not (Test-Path $LogRoot)) { New-Item -ItemType Directory -Path $LogRoot -Force | Out-Null }
+        Start-Process explorer.exe $LogRoot
+    })
+
+    # ── Instalar ──
     $installButton.Add_Click({
-        $selectedTag = [string](($profileBox.SelectedItem).Tag); $script:Profile = $selectedTag; $script:DryRun = [bool]$dryRunBox.IsChecked
-        $selected = @(Get-ProfileApplications $selectedTag | Where-Object { $script:checkBoxes[$_.Id].IsChecked })
-        if (-not $selected.Count) { [Windows.MessageBox]::Show('Selecione pelo menos um programa.','Nada selecionado','OK','Warning'); return }
-        $answer = [Windows.MessageBox]::Show("Iniciar a instalação de $($selected.Count) programa(s)?",'Confirmação','YesNo','Question')
+        $script:Profile = 'Normal'
+        $script:DryRun  = [bool]$dryRunBox.IsChecked
+        $selected       = @(Get-ProfileApplications 'Normal' | Where-Object { $script:checkBoxes[$_.Id].IsChecked })
+
+        if (-not $selected.Count) {
+            [Windows.MessageBox]::Show('Selecione pelo menos um programa.','Atencao','OK','Warning')
+            return
+        }
+        $answer = [Windows.MessageBox]::Show(
+            "Iniciar a instalacao de $($selected.Count) programa(s)?",
+            'Confirmacao','YesNo','Question')
         if ($answer -ne 'Yes') { return }
-        $installButton.IsEnabled = $false; $profileBox.IsEnabled = $false; $progress.Value = 5
-        $callback = { param($text,$percent) $statusText.Text=$text; $progress.Value=[Math]::Min(99,[Math]::Max(0,$percent)); $window.Dispatcher.Invoke([Action]{},[Windows.Threading.DispatcherPriority]::Background) }
+
+        $installButton.IsEnabled = $false
+        $selectAllBtn.IsEnabled  = $false
+        $clearAllBtn.IsEnabled   = $false
+        $resultPanel.Visibility  = [Windows.Visibility]::Collapsed
+        $resultItems.Children.Clear()
+        $progress.Value    = 5
+        $percentLabel.Text = '5%'
+
+        $callback = {
+            param($text, $percent)
+            $statusText.Text    = $text
+            $pVal               = [Math]::Min(99,[Math]::Max(0,$percent))
+            $progress.Value     = $pVal
+            $percentLabel.Text  = "$([int]$pVal)%"
+            $window.Dispatcher.Invoke([Action]{}, [Windows.Threading.DispatcherPriority]::Background)
+        }
+
         $results = Start-Installation -Applications $selected -StatusCallback $callback
-        $progress.Value = 100; $installButton.IsEnabled = $true; $profileBox.IsEnabled = $true
+
+        $progress.Value    = 100
+        $percentLabel.Text = '100%'
+
+        $installButton.IsEnabled = $true
+        $selectAllBtn.IsEnabled  = $true
+        $clearAllBtn.IsEnabled   = $true
+
+        # Resultado inline
+        $resultPanel.Visibility = [Windows.Visibility]::Visible
+        foreach ($r in $results) {
+            $row             = [Windows.Controls.StackPanel]::new()
+            $row.Orientation = [Windows.Controls.Orientation]::Horizontal
+            $row.Margin      = [Windows.Thickness]::new(0,3,0,3)
+
+            $lbl              = [Windows.Controls.TextBlock]::new()
+            $lbl.Text         = if ($r.Success) { "[OK]  $($r.Name)  -  $($r.Status)" } else { "[ERRO]  $($r.Name)  -  $($r.Status)" }
+            $lbl.FontSize     = 12
+            $lbl.FontWeight   = if ($r.Success) { [Windows.FontWeights]::Normal } else { [Windows.FontWeights]::SemiBold }
+            $lbl.Foreground   = if ($r.Success) { [Windows.Media.Brushes]::SeaGreen } else { [Windows.Media.Brushes]::Crimson }
+            $lbl.VerticalAlignment = [Windows.VerticalAlignment]::Center
+            $row.Children.Add($lbl) | Out-Null
+            $resultItems.Children.Add($row) | Out-Null
+        }
+
         $failed = @($results | Where-Object { -not $_.Success })
         if ($failed.Count) {
             $statusText.Text = "Finalizado com $($failed.Count) falha(s). Consulte o log."
-            [Windows.MessageBox]::Show("A instalação terminou com falhas.`n`nLog: $script:LogFile",'Instalação incompleta','OK','Error')
         } else {
-            $statusText.Text = 'Instalação concluída com sucesso.'
-            [Windows.MessageBox]::Show("Instalação concluída.`n`nLog: $script:LogFile",'Concluído','OK','Information')
+            $statusText.Text = 'Instalacao concluida com sucesso.'
         }
     })
+
     $window.ShowDialog() | Out-Null
 }
 
+# ─────────────────────────────────────────────────────────────────────────────
+# ENTRYPOINT
+# ─────────────────────────────────────────────────────────────────────────────
 try {
     if (-not $DryRun) { Request-Elevation }
     Load-Configuration
@@ -470,8 +960,8 @@ try {
     if ($Silent) {
         $apps = Get-ProfileApplications $Profile
         if ($Applications) {
-            $requestedIds = @($Applications | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-            $unknownIds = @($requestedIds | Where-Object { $_ -notin @($apps.Id) })
+            $requestedIds   = @($Applications | ForEach-Object { $_ -split ',' } | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            $unknownIds     = @($requestedIds | Where-Object { $_ -notin @($apps.Id) })
             if ($unknownIds.Count) { throw "Programa(s) desconhecido(s): $($unknownIds -join ', ')." }
             $apps = @($apps | Where-Object { $_.Id -in $requestedIds })
         }

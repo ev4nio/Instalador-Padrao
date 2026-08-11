@@ -2,14 +2,14 @@
   "ContinueOnError": true,
   "CachePath": "%USERPROFILE%\\Downloads\\InstaladorPadrao",
   "Profiles": {
-    "Normal": ["adobe", "office365", "chrome", "teamviewer", "microsip", "driversoab", "gdrive"]
+    "Normal": ["adobe", "office2021", "chrome", "teamviewer", "microsip", "driversoab", "gdrive"]
   },
   "Applications": [
     {
       "Id": "adobe",
       "Name": "Adobe Acrobat XI",
       "Type": "Exe",
-      "Path": "Executáveis\\Adobe\\Adobe Acrobat XI\\setup.exe",
+      "Path": "Executaveis\\Adobe\\Adobe Acrobat XI\\setup.exe",
       "DownloadUrl": "",
       "SetupRelativePath": "",
       "Arguments": "/sAll /rs /rps /msi EULA_ACCEPT=YES",
@@ -20,10 +20,30 @@
       "SuccessExitCodes": [0, 1641, 3010]
     },
     {
+      "Id": "office2021",
+      "Name": "Microsoft Office 2021",
+      "Type": "OfficeOdt",
+      "Path": "Executaveis\\Office2021\\Setup.exe",
+      "DownloadUrl": "",
+      "Arguments": "/configure configuration.xml",
+      "ShowInstallerWindow": false,
+      "SkipIfInstalled": false,
+      "DetectionDisplayName": "",
+      "DetectionPath": "",
+      "DetectionPaths": [
+        "%ProgramFiles%\\Microsoft Office\\root\\Office16\\WINWORD.EXE",
+        "%ProgramFiles(x86)%\\Microsoft Office\\root\\Office16\\WINWORD.EXE"
+      ],
+      "ProcessTimeoutSeconds": 3600,
+      "VerifyAfterInstall": true,
+      "VerificationTimeoutSeconds": 3600,
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
       "Id": "office365",
       "Name": "Microsoft 365 (instalador da conta)",
       "Type": "Exe",
-      "Path": "Executáveis\\Office\\OfficeSetup.exe",
+      "Path": "Executaveis\\Office365\\OfficeSetup.exe",
       "DownloadUrl": "",
       "Arguments": "",
       "ShowInstallerWindow": true,
@@ -43,7 +63,7 @@
       "Id": "chrome",
       "Name": "Google Chrome",
       "Type": "Exe",
-      "Path": "Executáveis\\Chrome\\chrome_installer.exe",
+      "Path": "Executaveis\\Chrome\\chrome_installer.exe",
       "DownloadUrl": "https://dl.google.com/chrome/install/latest/chrome_installer.exe",
       "Arguments": "/silent /install",
       "DetectionDisplayName": "Google Chrome*",
@@ -54,7 +74,7 @@
       "Id": "gdrive",
       "Name": "Google Drive para computador",
       "Type": "Exe",
-      "Path": "Executáveis\\GoogleDrive\\GoogleDriveSetup.exe",
+      "Path": "Executaveis\\GoogleDrive\\GoogleDriveSetup.exe",
       "DownloadUrl": "https://dl.google.com/drive-file-stream/GoogleDriveSetup.exe",
       "Arguments": "",
       "ShowInstallerWindow": true,
@@ -75,7 +95,7 @@
       "Id": "teamviewer",
       "Name": "TeamViewer",
       "Type": "Exe",
-      "Path": "Executáveis\\TeamViewer\\TeamViewer_Host_Setup_x64.exe",
+      "Path": "Executaveis\\TeamViewer\\TeamViewer_Host_Setup_x64.exe",
       "DownloadUrl": "https://download.teamviewer.com/download/TeamViewer_Host_Setup_x64.exe",
       "Arguments": "/S",
       "DetectionDisplayName": "TeamViewer*",
@@ -86,7 +106,7 @@
       "Id": "microsip",
       "Name": "MicroSIP",
       "Type": "Exe",
-      "Path": "Executáveis\\MicroSIP\\MicroSIP-3.22.12.exe",
+      "Path": "Executaveis\\MicroSIP\\MicroSIP-3.22.12.exe",
       "DownloadUrl": "https://www.microsip.org/download/MicroSIP-3.22.12.exe",
       "Arguments": "/S",
       "DetectionDisplayName": "MicroSIP*",
@@ -105,7 +125,7 @@
       "Id": "driversoab",
       "Name": "Drivers OAB",
       "Type": "Exe",
-      "Path": "Executáveis\\DriversOAB\\Instalador_Drivers_OAB.exe",
+      "Path": "Executaveis\\DriversOAB\\Instalador_Drivers_OAB.exe",
       "DownloadUrl": "",
       "Arguments": "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-",
       "SkipIfInstalled": true,
