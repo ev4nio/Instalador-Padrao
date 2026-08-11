@@ -2,7 +2,7 @@
   "ContinueOnError": true,
   "CachePath": "%USERPROFILE%\\Downloads\\InstaladorPadrao",
   "Profiles": {
-    "Normal": ["adobe", "office2021", "chrome", "teamviewer", "microsip", "driversoab", "gdrive"]
+    "Normal": ["adobe", "office365", "office2021", "chrome", "teamviewer", "microsip", "driversoab", "gdrive"]
   },
   "Applications": [
     {

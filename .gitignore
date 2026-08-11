@@ -1,4 +1,4 @@
-# Executáveis proprietários e pacotes locais (sem acento no nome da pasta)
+# Ignorar arquivos executáveis, instaladores e arquivos pesados
 Executaveis/**/*.exe
 Executaveis/**/*.msi
 Executaveis/**/*.msp
@@ -8,7 +8,22 @@ Executaveis/**/*.download
 Executaveis/**/*.cab
 Executaveis/**/*.c2rx
 Executaveis/**/*.cat
+Executaveis/**/*.dll
+Executaveis/**/*.dat
+Executaveis/**/*.bmp
+Executaveis/**/*.nfo
+Executaveis/**/*.inf
+Executaveis/**/*.mst
+Executaveis/**/*.ini
+Executaveis/**/*.htm
+Executaveis/**/*.html
+Executaveis/**/*.lnk
+
+# Ignorar pastas inteiras de instaladores extraídos
+Executaveis/Adobe/*
+!Executaveis/Adobe/LEIA-ME.txt
 Executaveis/Office2021/Office/
+Executaveis/Office2021/ProPlus2021Retail.img
 
 # Compatibilidade com acento (caso alguém crie localmente)
 Executáveis/**/*.exe
@@ -20,7 +35,8 @@ Executáveis/**/*.download
 Executáveis/**/*.cab
 Executáveis/**/*.c2rx
 Executáveis/**/*.cat
-Executáveis/Office2021/Office/
+Executáveis/Adobe/*
+!Executáveis/Adobe/LEIA-ME.txt
 
 # Arquivos temporários e logs
 *.log
