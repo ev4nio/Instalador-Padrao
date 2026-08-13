@@ -1,4 +1,4 @@
-{
+﻿{
   "Version": "1.2.0",
   "ContinueOnError": true,
   "CachePath": "%USERPROFILE%\\Downloads\\InstaladorPadrao",
@@ -167,3 +167,4 @@
     }
   ]
 }
+

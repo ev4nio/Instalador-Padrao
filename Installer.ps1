@@ -1,4 +1,4 @@
-#requires -version 5.1
+﻿#requires -version 5.1
 param(
     [switch]$Elevated,
     [switch]$Silent,
@@ -7,6 +7,8 @@ param(
     [switch]$DryRun
 )
 
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $ScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -62,13 +64,26 @@ function Get-ApplicationCachePath {
 
 function Remove-ApplicationCache {
     param([Parameter(Mandatory)][string]$PackagePath)
+    if ($DryRun -or -not $script:CacheRoot) { return }
     $cacheRoot = ([IO.Path]::GetFullPath($script:CacheRoot)).TrimEnd([IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar) + [IO.Path]::DirectorySeparatorChar
     $packageFullPath = [IO.Path]::GetFullPath($PackagePath)
     if (-not $packageFullPath.StartsWith($cacheRoot, [StringComparison]::OrdinalIgnoreCase)) { return }
     $cacheFolder = Split-Path -Parent $PackagePath
     if (Test-Path -LiteralPath $cacheFolder) {
-        Remove-Item -LiteralPath $cacheFolder -Recurse -Force
+        Remove-Item -LiteralPath $cacheFolder -Recurse -Force -ErrorAction SilentlyContinue
         Write-InstallLog "Arquivos temporários removidos: $cacheFolder"
+    }
+}
+
+function Remove-AllApplicationCache {
+    if ($DryRun -or -not $script:CacheRoot) { return }
+    if (Test-Path -LiteralPath $script:CacheRoot) {
+        try {
+            Remove-Item -LiteralPath $script:CacheRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Write-InstallLog "Limpeza geral concluída. Pasta temporária de downloads removida: $script:CacheRoot"
+        } catch {
+            Write-InstallLog "Não foi possível remover totalmente a pasta temporária: $script:CacheRoot" 'WARN'
+        }
     }
 }
 
@@ -317,107 +332,105 @@ function Invoke-ApplicationInstall {
         return @{ Id=$Application.Id; Name=$Application.Name; Status='Já instalado'; Success=$true }
     }
     $packagePath = Invoke-PackageDownload -Application $Application -ProgressCallback $ProgressCallback
-    $codes = @($Application.SuccessExitCodes | ForEach-Object { [int]$_ })
-    if ($codes.Count -eq 0) { $codes = @(0,1641,3010) }
-    $processTimeout = 1800
-    if ($Application.PSObject.Properties['ProcessTimeoutSeconds']) { $processTimeout = [int]$Application.ProcessTimeoutSeconds }
-    $showInstallerWindow = $false
-    if ($Application.PSObject.Properties['ShowInstallerWindow']) { $showInstallerWindow = [bool]$Application.ShowInstallerWindow }
-    $processParameters = @{
-        SuccessExitCodes = $codes
-        TimeoutSeconds = $processTimeout
-        DisplayName = [string]$Application.Name
-        ShowWindow = $showInstallerWindow
-        ProgressCallback = $ProgressCallback
-    }
-    $installationSucceeded = $false
-    if ($Application.Type -eq 'Iso') {
-        $isoPath = $packagePath
-        if ($DryRun) {
-            Write-InstallLog "Modo simulação: montaria a ISO $isoPath" 'WARN'
-            return @{ Id=$Application.Id; Name=$Application.Name; Status='Simulado'; Success=$true }
+    try {
+        $codes = @($Application.SuccessExitCodes | ForEach-Object { [int]$_ })
+        if ($codes.Count -eq 0) { $codes = @(0,1641,3010) }
+        $processTimeout = 1800
+        if ($Application.PSObject.Properties['ProcessTimeoutSeconds']) { $processTimeout = [int]$Application.ProcessTimeoutSeconds }
+        $showInstallerWindow = $false
+        if ($Application.PSObject.Properties['ShowInstallerWindow']) { $showInstallerWindow = [bool]$Application.ShowInstallerWindow }
+        $processParameters = @{
+            SuccessExitCodes = $codes
+            TimeoutSeconds = $processTimeout
+            DisplayName = [string]$Application.Name
+            ShowWindow = $showInstallerWindow
+            ProgressCallback = $ProgressCallback
         }
-        if (-not (Test-Path -LiteralPath $isoPath)) { throw "ISO não encontrada: $isoPath" }
-        $image = $null
-        try {
-            $image = Mount-DiskImage -ImagePath $isoPath -PassThru
-            $volume = $image | Get-Volume
-            if (-not $volume.DriveLetter) { throw 'A ISO foi montada, mas não recebeu uma letra de unidade.' }
-            $setup = Join-Path ($volume.DriveLetter + ':\') ([string]$Application.SetupRelativePath)
-            Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory (Split-Path $setup) @processParameters | Out-Null
-        } finally {
-            if ($image) { Dismount-DiskImage -ImagePath $isoPath -ErrorAction SilentlyContinue }
-        }
-    } elseif ($Application.Type -eq 'OfficeOdt') {
-        $odtFolder = Split-Path -Parent $packagePath
-        $setup = Join-Path $odtFolder 'setup.exe'
-        if (-not (Test-Path -LiteralPath $setup)) {
-            Invoke-ProcessChecked -FilePath $packagePath -Arguments ('/quiet /extract:"{0}"' -f $odtFolder) -SuccessExitCodes @(0) -WorkingDirectory $odtFolder -TimeoutSeconds $processTimeout -DisplayName ([string]$Application.Name) -ProgressCallback $ProgressCallback | Out-Null
-        }
-        Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory $odtFolder @processParameters | Out-Null
-        Wait-OfficeClickToRun -DisplayName ([string]$Application.Name) -TimeoutSeconds $processTimeout -ProgressCallback $ProgressCallback
-    } elseif ($Application.Type -eq 'OfficeIso') {
-        # Instala o Office montando a imagem .img/.iso e passando configuration.xml por caminho absoluto.
-        # Desta forma, nenhum Setup.exe externo precisa existir — tudo vem de dentro da imagem.
-        $isoPath = $packagePath
-        if ($DryRun) {
-            Write-InstallLog "Modo simulacao: montaria a imagem Office $isoPath" 'WARN'
-            return @{ Id=$Application.Id; Name=$Application.Name; Status='Simulado'; Success=$true }
-        }
-        if (-not (Test-Path -LiteralPath $isoPath)) { throw "Imagem Office nao encontrada: $isoPath" }
-        # Resolve configuration.xml: campo ConfigXml no config.json tem prioridade; se ausente, procura ao lado da imagem
-        $configXml = $null
-        if ($Application.PSObject.Properties['ConfigXml'] -and -not [string]::IsNullOrWhiteSpace([string]$Application.ConfigXml)) {
-            $configXml = Resolve-PackagePath ([string]$Application.ConfigXml)
-        } else {
-            $configXml = Join-Path (Split-Path -Parent $isoPath) 'configuration.xml'
-        }
-        if (-not (Test-Path -LiteralPath $configXml)) { throw "configuration.xml nao encontrado: $configXml" }
-        Write-InstallLog "Montando imagem Office: $isoPath"
-        $image = $null
-        try {
-            $image = Mount-DiskImage -ImagePath $isoPath -PassThru
-            $volume = $image | Get-Volume
-            if (-not $volume.DriveLetter) { throw 'A imagem foi montada, mas nao recebeu uma letra de unidade.' }
-            $setup = Join-Path ($volume.DriveLetter + ':\') 'setup.exe'
-            if (-not (Test-Path -LiteralPath $setup)) { throw "setup.exe nao encontrado na imagem montada ($($volume.DriveLetter):\)." }
-            Write-InstallLog "Executando Office setup a partir da imagem: $setup"
-            Invoke-ProcessChecked -FilePath $setup -Arguments "/configure `"$configXml`"" -WorkingDirectory ($volume.DriveLetter + ':\') @processParameters | Out-Null
+        if ($Application.Type -eq 'Iso') {
+            $isoPath = $packagePath
+            if ($DryRun) {
+                Write-InstallLog "Modo simulação: montaria a ISO $isoPath" 'WARN'
+                return @{ Id=$Application.Id; Name=$Application.Name; Status='Simulado'; Success=$true }
+            }
+            if (-not (Test-Path -LiteralPath $isoPath)) { throw "ISO não encontrada: $isoPath" }
+            $image = $null
+            try {
+                $image = Mount-DiskImage -ImagePath $isoPath -PassThru
+                $volume = $image | Get-Volume
+                if (-not $volume.DriveLetter) { throw 'A ISO foi montada, mas não recebeu uma letra de unidade.' }
+                $setup = Join-Path ($volume.DriveLetter + ':\') ([string]$Application.SetupRelativePath)
+                Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory (Split-Path $setup) @processParameters | Out-Null
+            } finally {
+                if ($image) { Dismount-DiskImage -ImagePath $isoPath -ErrorAction SilentlyContinue }
+            }
+        } elseif ($Application.Type -eq 'OfficeOdt') {
+            $odtFolder = Split-Path -Parent $packagePath
+            $setup = Join-Path $odtFolder 'setup.exe'
+            if (-not (Test-Path -LiteralPath $setup)) {
+                Invoke-ProcessChecked -FilePath $packagePath -Arguments ('/quiet /extract:"{0}"' -f $odtFolder) -SuccessExitCodes @(0) -WorkingDirectory $odtFolder -TimeoutSeconds $processTimeout -DisplayName ([string]$Application.Name) -ProgressCallback $ProgressCallback | Out-Null
+            }
+            Invoke-ProcessChecked -FilePath $setup -Arguments ([string]$Application.Arguments) -WorkingDirectory $odtFolder @processParameters | Out-Null
             Wait-OfficeClickToRun -DisplayName ([string]$Application.Name) -TimeoutSeconds $processTimeout -ProgressCallback $ProgressCallback
-        } finally {
-            if ($image) {
-                Write-InstallLog "Desmontando imagem Office: $isoPath"
-                Dismount-DiskImage -ImagePath $isoPath -ErrorAction SilentlyContinue
+        } elseif ($Application.Type -eq 'OfficeIso') {
+            $isoPath = $packagePath
+            if ($DryRun) {
+                Write-InstallLog "Modo simulacao: montaria a imagem Office $isoPath" 'WARN'
+                return @{ Id=$Application.Id; Name=$Application.Name; Status='Simulado'; Success=$true }
             }
+            if (-not (Test-Path -LiteralPath $isoPath)) { throw "Imagem Office nao encontrada: $isoPath" }
+            $configXml = $null
+            if ($Application.PSObject.Properties['ConfigXml'] -and -not [string]::IsNullOrWhiteSpace([string]$Application.ConfigXml)) {
+                $configXml = Resolve-PackagePath ([string]$Application.ConfigXml)
+            } else {
+                $configXml = Join-Path (Split-Path -Parent $isoPath) 'configuration.xml'
+            }
+            if (-not (Test-Path -LiteralPath $configXml)) { throw "configuration.xml nao encontrado: $configXml" }
+            Write-InstallLog "Montando imagem Office: $isoPath"
+            $image = $null
+            try {
+                $image = Mount-DiskImage -ImagePath $isoPath -PassThru
+                $volume = $image | Get-Volume
+                if (-not $volume.DriveLetter) { throw 'A imagem foi montada, mas nao recebeu uma letra de unidade.' }
+                $setup = Join-Path ($volume.DriveLetter + ':\') 'setup.exe'
+                if (-not (Test-Path -LiteralPath $setup)) { throw "setup.exe nao encontrado na imagem montada ($($volume.DriveLetter):\)." }
+                Write-InstallLog "Executando Office setup a partir da imagem: $setup"
+                Invoke-ProcessChecked -FilePath $setup -Arguments "/configure `"$configXml`"" -WorkingDirectory ($volume.DriveLetter + ':\') @processParameters | Out-Null
+                Wait-OfficeClickToRun -DisplayName ([string]$Application.Name) -TimeoutSeconds $processTimeout -ProgressCallback $ProgressCallback
+            } finally {
+                if ($image) {
+                    Write-InstallLog "Desmontando imagem Office: $isoPath"
+                    Dismount-DiskImage -ImagePath $isoPath -ErrorAction SilentlyContinue
+                }
+            }
+        } elseif ($Application.Type -eq 'Msi') {
+            $file = $packagePath
+            $msiArgs = '/i "{0}" {1}' -f $file, ([string]$Application.Arguments)
+            Invoke-ProcessChecked -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -Arguments $msiArgs -WorkingDirectory (Split-Path $file) @processParameters | Out-Null
+        } else {
+            $file = $packagePath
+            Invoke-ProcessChecked -FilePath $file -Arguments ([string]$Application.Arguments) -WorkingDirectory (Split-Path $file) @processParameters | Out-Null
         }
-    } elseif ($Application.Type -eq 'Msi') {
-        $file = $packagePath
-        $msiArgs = '/i "{0}" {1}' -f $file, ([string]$Application.Arguments)
-        Invoke-ProcessChecked -FilePath (Join-Path $env:SystemRoot 'System32\msiexec.exe') -Arguments $msiArgs -WorkingDirectory (Split-Path $file) @processParameters | Out-Null
-    } else {
-        $file = $packagePath
-        Invoke-ProcessChecked -FilePath $file -Arguments ([string]$Application.Arguments) -WorkingDirectory (Split-Path $file) @processParameters | Out-Null
-    }
-    if (-not $DryRun -and $Application.PSObject.Properties['VerifyAfterInstall'] -and [bool]$Application.VerifyAfterInstall) {
-        $verificationTimeout = 300
-        if ($Application.PSObject.Properties['VerificationTimeoutSeconds']) { $verificationTimeout = [int]$Application.VerificationTimeoutSeconds }
-        $verificationWatch = [Diagnostics.Stopwatch]::StartNew()
-        while (-not (Test-ApplicationInstalled $Application)) {
-            if ($verificationWatch.Elapsed.TotalSeconds -ge $verificationTimeout) {
-                throw "O instalador terminou, mas $($Application.Name) não foi detectado após $verificationTimeout segundos."
+        if (-not $DryRun -and $Application.PSObject.Properties['VerifyAfterInstall'] -and [bool]$Application.VerifyAfterInstall) {
+            $verificationTimeout = 300
+            if ($Application.PSObject.Properties['VerificationTimeoutSeconds']) { $verificationTimeout = [int]$Application.VerificationTimeoutSeconds }
+            $verificationWatch = [Diagnostics.Stopwatch]::StartNew()
+            while (-not (Test-ApplicationInstalled $Application)) {
+                if ($verificationWatch.Elapsed.TotalSeconds -ge $verificationTimeout) {
+                    throw "O instalador terminou, mas $($Application.Name) não foi detectado após $verificationTimeout segundos."
+                }
+                if ($ProgressCallback) {
+                    $elapsedText = '{0:mm\:ss}' -f $verificationWatch.Elapsed
+                    & $ProgressCallback "Confirmando a instalação de $($Application.Name) - $elapsedText" 97
+                }
+                Start-Sleep -Seconds 2
             }
-            if ($ProgressCallback) {
-                $elapsedText = '{0:mm\:ss}' -f $verificationWatch.Elapsed
-                & $ProgressCallback "Confirmando a instalação de $($Application.Name) - $elapsedText" 97
-            }
-            Start-Sleep -Seconds 2
+            Write-InstallLog "$($Application.Name) confirmado no sistema." 'SUCCESS'
         }
-        Write-InstallLog "$($Application.Name) confirmado no sistema." 'SUCCESS'
+        Write-InstallLog "$($Application.Name) concluído." 'SUCCESS'
+        return @{ Id=$Application.Id; Name=$Application.Name; Status=($(if ($DryRun) {'Simulado'} else {'Concluído'})); Success=$true }
+    } finally {
+        if (-not $DryRun) { Remove-ApplicationCache -PackagePath $packagePath }
     }
-    $installationSucceeded = $true
-    if ($installationSucceeded -and -not $DryRun) { Remove-ApplicationCache -PackagePath $packagePath }
-    Write-InstallLog "$($Application.Name) concluído." 'SUCCESS'
-    return @{ Id=$Application.Id; Name=$Application.Name; Status=($(if ($DryRun) {'Simulado'} else {'Concluído'})); Success=$true }
 }
 
 function Get-ProfileApplications {
@@ -457,33 +470,37 @@ function Start-Installation {
     $results = @()
     Write-InstallLog "Sessão iniciada. Perfil: $Profile; Simulação: $DryRun"
     $index = 0
-    foreach ($app in $Applications) {
-        $basePercent = ($index * 100.0) / [Math]::Max(1,$Applications.Count)
-        $spanPercent = 100.0 / [Math]::Max(1,$Applications.Count)
-        if ($StatusCallback) { & $StatusCallback "Preparando $($app.Name)..." $basePercent }
-        $appCallback = { param($text,$itemPercent) if ($StatusCallback) { & $StatusCallback $text ($basePercent + (($itemPercent/100.0)*$spanPercent)) } }
-        $failedDependencies = @()
-        if ($app.PSObject.Properties['Dependencies']) {
-            $dependencyIds = @($app.Dependencies)
-            $failedDependencies = @($results | Where-Object { $_.Id -in $dependencyIds -and -not $_.Success })
-        }
-        if ($failedDependencies.Count) {
-            $dependencyNames = @($failedDependencies | ForEach-Object { $_.Name }) -join ', '
-            $message = "$($app.Name) não foi executado porque a dependência falhou: $dependencyNames."
-            Write-InstallLog $message 'ERROR'
-            $results += @{ Id=$app.Id; Name=$app.Name; Status='Dependência falhou'; Success=$false; Error=$message }
+    try {
+        foreach ($app in $Applications) {
+            $basePercent = ($index * 100.0) / [Math]::Max(1,$Applications.Count)
+            $spanPercent = 100.0 / [Math]::Max(1,$Applications.Count)
+            if ($StatusCallback) { & $StatusCallback "Preparando $($app.Name)..." $basePercent }
+            $appCallback = { param($text,$itemPercent) if ($StatusCallback) { & $StatusCallback $text ($basePercent + (($itemPercent/100.0)*$spanPercent)) } }
+            $failedDependencies = @()
+            if ($app.PSObject.Properties['Dependencies']) {
+                $dependencyIds = @($app.Dependencies)
+                $failedDependencies = @($results | Where-Object { $_.Id -in $dependencyIds -and -not $_.Success })
+            }
+            if ($failedDependencies.Count) {
+                $dependencyNames = @($failedDependencies | ForEach-Object { $_.Name }) -join ', '
+                $message = "$($app.Name) não foi executado porque a dependência falhou: $dependencyNames."
+                Write-InstallLog $message 'ERROR'
+                $results += @{ Id=$app.Id; Name=$app.Name; Status='Dependência falhou'; Success=$false; Error=$message }
+                $index++
+                continue
+            }
+            try {
+                $results += Invoke-ApplicationInstall $app -ProgressCallback $appCallback
+            } catch {
+                $message = "$($app.Name): $($_.Exception.Message)"
+                Write-InstallLog $message 'ERROR'
+                $results += @{ Id=$app.Id; Name=$app.Name; Status='Falhou'; Success=$false; Error=$_.Exception.Message }
+                if (-not [bool]$script:Config.ContinueOnError) { break }
+            }
             $index++
-            continue
         }
-        try {
-            $results += Invoke-ApplicationInstall $app -ProgressCallback $appCallback
-        } catch {
-            $message = "$($app.Name): $($_.Exception.Message)"
-            Write-InstallLog $message 'ERROR'
-            $results += @{ Id=$app.Id; Name=$app.Name; Status='Falhou'; Success=$false; Error=$_.Exception.Message }
-            if (-not [bool]$script:Config.ContinueOnError) { break }
-        }
-        $index++
+    } finally {
+        Remove-AllApplicationCache
     }
     $failed = @($results | Where-Object { -not $_.Success })
     Write-InstallLog ("Sessão finalizada. Sucessos: {0}; Falhas: {1}" -f ($results.Count-$failed.Count),$failed.Count) $(if ($failed.Count) {'ERROR'} else {'SUCCESS'})
@@ -1007,6 +1024,10 @@ function Show-MainWindow {
         }
     })
 
+    $window.Add_Closing({
+        Remove-AllApplicationCache
+    })
+
     $window.ShowDialog() | Out-Null
 }
 
@@ -1035,4 +1056,7 @@ try {
     Add-Type -AssemblyName PresentationFramework -ErrorAction SilentlyContinue
     [Windows.MessageBox]::Show("Erro fatal: $($_.Exception.Message)`n`nLog: $script:LogFile",'Instalador Padrão','OK','Error') | Out-Null
     exit 1
+} finally {
+    Remove-AllApplicationCache
 }
+
