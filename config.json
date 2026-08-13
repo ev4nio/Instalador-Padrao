@@ -2,7 +2,7 @@
   "ContinueOnError": true,
   "CachePath": "%USERPROFILE%\\Downloads\\InstaladorPadrao",
   "Profiles": {
-    "Normal": ["adobe", "office365", "office2021", "chrome", "teamviewer", "microsip", "driversoab", "gdrive"]
+    "Normal": ["adobe", "office365", "office2021", "chrome", "teamviewer", "microsip", "driversoab", "gdrive", "glpiagent"]
   },
   "Applications": [
     {
@@ -143,6 +143,25 @@
       "DetectionPath": "",
       "VerifyAfterInstall": true,
       "VerificationTimeoutSeconds": 300,
+      "SuccessExitCodes": [0, 1641, 3010]
+    },
+    {
+      "Id": "glpiagent",
+      "Name": "GLPI Agent",
+      "Type": "Msi",
+      "Path": "Executaveis\\GLPI\\GLPI-Agent-1.18-x64.msi",
+      "DownloadUrl": "https://github.com/glpi-project/glpi-agent/releases/download/1.18/GLPI-Agent-1.18-x64.msi",
+      "Arguments": "",
+      "ShowInstallerWindow": true,
+      "SkipIfInstalled": false,
+      "DetectionDisplayName": "GLPI Agent*",
+      "DetectionPath": "",
+      "DetectionPaths": [
+        "%ProgramFiles%\\GLPI-Agent\\glpi-agent.bat",
+        "%ProgramFiles%\\GLPI-Agent\\glpi-agent.exe"
+      ],
+      "VerifyAfterInstall": true,
+      "VerificationTimeoutSeconds": 600,
       "SuccessExitCodes": [0, 1641, 3010]
     }
   ]
