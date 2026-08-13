@@ -822,6 +822,11 @@ function Show-MainWindow {
     $selectAllBtn   = $window.FindName('SelectAllBtn')
     $clearAllBtn    = $window.FindName('ClearAllBtn')
 
+    if ($script:Config -and $script:Config.PSObject.Properties['Version'] -and -not [string]::IsNullOrWhiteSpace([string]$script:Config.Version)) {
+        $headerTitle.Text = "Instalador Padrão v$($script:Config.Version)"
+        $window.Title     = "Instalador Padrão v$($script:Config.Version)"
+    }
+
     $script:checkBoxes = @{}
     $script:isDarkMode  = $false
 
